@@ -1,8 +1,17 @@
 name: CI
 
+# Private repositories pay for runner minutes (macOS ones count the most), so CI runs on pull
+# requests and on main only, skips documentation-only changes, and cancels superseded runs.
 on:
   push:
+    branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**']
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**']
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -10,6 +19,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -21,8 +31,11 @@ jobs:
       - run: npm run build
 
   e2e:
+    # The most expensive job: runs after merges to main, not on every pull request update.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: check
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
