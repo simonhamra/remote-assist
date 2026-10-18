@@ -175,6 +175,27 @@ textarea {
   resize: vertical;
 }
 
+.code-input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0d1014;
+  color: var(--ink);
+  font-size: 1.8rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1em;
+}
+
+.code-input:focus-visible {
+  outline: 2px solid #6cb6ff;
+  outline-offset: 2px;
+}
+
+.card > button {
+  align-self: flex-start;
+}
+
 /* Viewer */
 .viewer {
   display: flex;

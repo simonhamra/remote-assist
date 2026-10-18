@@ -1,0 +1,52 @@
+# Remote Assist server on one small VPS: TLS proxy, signaling and TURN relay.
+# Setup: infra/README.md. Settings come from infra/.env (copy .env.example).
+name: remote-assist
+
+services:
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in infra/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - signaling
+
+  signaling:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    # Reachable only through Caddy, never directly from the internet.
+    expose:
+      - '8787'
+    environment:
+      HOST: 0.0.0.0
+      PORT: '8787'
+      TRUST_PROXY: '1'
+      STUN_URLS: stun:${DOMAIN}:3478
+      TURN_URLS: turn:${DOMAIN}:3478?transport=udp,turn:${DOMAIN}:3478?transport=tcp
+      TURN_SECRET: ${TURN_SECRET:?Set TURN_SECRET in infra/.env}
+
+  coturn:
+    image: coturn/coturn:4.18.0-alpine
+    restart: unless-stopped
+    # The relay uses a range of UDP ports, which Docker's port mapping handles poorly.
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET}
+      - --realm=${DOMAIN}
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -21,9 +21,14 @@ export interface ScreenSource {
   stop(): void;
 }
 
-export function createPeerConnection(iceServers: RTCIceServer[] = []): RTCPeerConnection {
+/** `relay` forces traffic through TURN, which is how the relay path gets tested. */
+export function createPeerConnection(
+  iceServers: RTCIceServer[] = [],
+  iceTransportPolicy: RTCIceTransportPolicy = 'all',
+): RTCPeerConnection {
   return new RTCPeerConnection({
     iceServers,
+    iceTransportPolicy,
     bundlePolicy: 'max-bundle',
     rtcpMuxPolicy: 'require',
   });
@@ -82,22 +87,12 @@ export function tuneReceiver(receiver: RTCRtpReceiver): void {
   receiver.jitterBufferTarget = 0;
 }
 
-/**
- * Copy-paste signaling has no trickle ICE, so the code must contain every candidate. Resolves when
- * gathering completes, or after `timeoutMs` with whatever was found.
- */
-export function waitForIceGathering(pc: RTCPeerConnection, timeoutMs = 3000): Promise<void> {
-  if (pc.iceGatheringState === 'complete') return Promise.resolve();
-  return new Promise((resolve) => {
-    const finish = (): void => {
-      clearTimeout(timer);
-      pc.removeEventListener('icegatheringstatechange', onChange);
-      resolve();
-    };
-    const onChange = (): void => {
-      if (pc.iceGatheringState === 'complete') finish();
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    pc.addEventListener('icegatheringstatechange', onChange);
-  });
+/** The parts of an ICE candidate that signaling carries to the other side. */
+export function candidateInit(candidate: RTCIceCandidate) {
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment,
+  };
 }

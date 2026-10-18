@@ -7,12 +7,14 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "server"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24"
   },
   "scripts": {
+    "dev:server": "npm run dev -w @remote-assist/server",
     "dev:host": "npm run dev -w @remote-assist/host",
     "dev:helper": "npm run dev -w @remote-assist/helper",
     "build": "npm run build -w @remote-assist/host -w @remote-assist/helper",
@@ -32,6 +34,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.13.0",
+    "node-turn": "^0.0.6",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2",

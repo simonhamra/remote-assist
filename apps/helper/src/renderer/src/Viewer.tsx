@@ -7,11 +7,11 @@ interface ViewerProps {
   pc: RTCPeerConnection;
   stream: MediaStream | null;
   fakeScreen: boolean;
-  connection: RTCPeerConnectionState;
+  reconnecting: boolean;
   onDisconnect(): void;
 }
 
-export function Viewer({ pc, stream, fakeScreen, connection, onDisconnect }: ViewerProps) {
+export function Viewer({ pc, stream, fakeScreen, reconnecting, onDisconnect }: ViewerProps) {
   const video = useRef<HTMLVideoElement>(null);
   const [showStats, setShowStats] = useState(true);
   // The test screen draws its timecode at a fixed spot; a real screen needs the probe strip.
@@ -54,9 +54,7 @@ export function Viewer({ pc, stream, fakeScreen, connection, onDisconnect }: Vie
   return (
     <div className="viewer">
       <header className="toolbar">
-        <span className="live">
-          {connection === 'disconnected' ? 'Reconnecting…' : 'Viewing their screen'}
-        </span>
+        <span className="live">{reconnecting ? 'Reconnecting…' : 'Viewing their screen'}</span>
         <span className="spacer" />
         {!fakeScreen && (
           <button

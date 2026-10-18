@@ -1,0 +1,19 @@
+{
+  "name": "@remote-assist/server",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Signaling server: session codes, message relay and TURN credentials.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.ts",
+    "dev": "node --watch src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@remote-assist/protocol": "*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
+  }
+}

@@ -10,7 +10,8 @@
     "src/renderer/**/*.ts",
     "src/renderer/**/*.tsx",
     "src/shared/**/*.ts",
-    "../../packages/rtc/src/**/*.ts"
+    "../../packages/rtc/src/**/*.ts",
+    "../../packages/protocol/src/**/*.ts"
   ],
-  "exclude": ["../../packages/rtc/src/**/*.test.ts"]
+  "exclude": ["../../packages/*/src/**/*.test.ts"]
 }

@@ -13,8 +13,8 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 | Video transport | **WebRTC**, H.264 hardware first, VP8 fallback | Congestion control, packet-loss recovery and encryption built in |
 | Input transport | **RTCDataChannel** (unreliable for pointer, reliable for the rest) | Same encrypted connection as the video, no extra ports |
 | Input injection | **Rust + [napi-rs](https://napi.rs) + [`enigo`](https://github.com/enigo-rs/enigo)** (MIT) | Maintained, cross-platform (CGEvent / SendInput / X11+libei), small surface you control |
-| Signaling | **Node.js 24 LTS + Fastify + `ws` + zod** | About 400 lines, easy to audit. Holds persistent WebSockets for presence. |
-| Database | **SQLite** (`better-sqlite3`) | A single file of public keys and metadata, with trivial backups |
+| Signaling | **Node.js 24 LTS + `ws` + zod**, TypeScript run directly by Node (type stripping) | About 300 lines, easy to audit, no build step. Plain `node:http` is enough for one WebSocket path and a health check, so there's no web framework. |
+| Database | **SQLite**, added with session history and pairing (Phases 4–5) | A single file of public keys and metadata, with trivial backups. Phase 2 keeps nothing, so it has no database. |
 | NAT traversal | **coturn** (STUN + TURN, TLS on 443) with ephemeral REST-API credentials | Works through hotel and corporate firewalls. Credentials expire. |
 | TLS / proxy | **Caddy** | Automatic HTTPS certificates, one config file |
 | Hosting | One small VPS (~€5/mo, e.g. Hetzner/DigitalOcean) with **Docker Compose** | Signaling, TURN and TLS in one place. Screen-share traffic is about 1–4 Mbps per session. |
@@ -42,6 +42,7 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 | **Custom QUIC/UDP media protocol** | Lower ceiling on latency, but you would rebuild congestion control, FEC, NAT traversal and encryption yourself. WebRTC already does all of this. |
 | **`@nut-tree/nut-js`** for input | The official prebuilt packages now require a paid license. The community fork `@nut-tree-fork/nut-js` (Apache-2.0) is fine for a **quick Phase 1 spike**, but `enigo` via napi-rs gives a long-term, fully owned path. |
 | **`robotjs`** | Unmaintained, with fragile native builds. Avoid. |
+| **Fastify** for the server | Considered for Phase 2. Unnecessary for one WebSocket endpoint and a health check. Revisit if the server grows an HTTP API. |
 | **Firebase / Supabase Realtime for signaling** | Works, but a tiny server you own is easier to reason about for authentication and logging. |
 | **Managed TURN** (Cloudflare Realtime TURN, Twilio, Metered) | A perfectly good substitute for coturn if you'd rather not run it. Your traffic volume is tiny. |
 

@@ -19,9 +19,13 @@
 | **Session requests** | Signed by the helper's key and including `sessionId`, `nonce`, `timestamp (±60 s)` and the recipient device ID. The host rejects anything unsigned, from an unpinned key, stale, or replayed. |
 | **Media authentication** | The SDP offer and answer, which contain the DTLS certificate fingerprint, are signed by the device keys. Chromium refuses DTLS peers whose certificate does not match the fingerprint, so the encrypted stream is bound to the paired devices. |
 | **Helper-side gate** | Touch ID or the OS password is required to start a session. A stolen, unlocked laptop cannot simply click "Help". |
-| **Expiring session codes** | An optional **ad-hoc mode** for one-off help without pairing: a 6-digit code, valid 10 minutes, for a single session, with nothing remembered afterwards. **Off by default** on Grandma's machine, and only a paired helper can turn it on. |
+| **Expiring session codes** | An optional **ad-hoc mode** for one-off help without pairing: an 8-digit code, valid 10 minutes, for a single session, with nothing remembered afterwards. **Off by default** on Grandma's machine, and only a paired helper can turn it on. *Phase 2 builds this code flow first, as the only way to connect until pairing exists (see below).* |
 | **Revocation** | Grandma: *People who can help me → Remove*. You: remove from the helper app. Either action deletes the pinned key on that device and the relationship on the server. |
 | **TURN credentials** | Time-limited HMAC credentials (coturn `use-auth-secret`) issued per session, expiring with the session cap |
+
+### Interim state after Phase 2
+
+Until consent (Phase 4) and pairing (Phase 5) land, **the 8-digit code is the only protection**. Anyone who types a valid code within its 10 minutes sees the screen. Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Still, use builds from this stage only for testing, not with Grandma.
 
 ## Encryption
 

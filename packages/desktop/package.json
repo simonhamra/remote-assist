@@ -1,0 +1,14 @@
+{
+  "name": "@remote-assist/desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Electron main-process helpers shared by the host and helper apps.",
+  "type": "module",
+  "exports": {
+    "./main": "./src/main.ts",
+    "./channels": "./src/channels.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

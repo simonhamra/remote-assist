@@ -1,19 +1,13 @@
-import {
-  app,
-  BrowserWindow,
-  clipboard,
-  ipcMain,
-  screen,
-  session,
-  type IpcMainInvokeEvent,
-  type WebFrameMain,
-} from 'electron';
+import { lockDown, registerSignalingBridge, trustedHandler } from '@remote-assist/desktop/main';
+import { app, BrowserWindow, screen, session } from 'electron';
 import { join } from 'node:path';
 import { Channels, type AppConfig, type ProbeRect } from '../shared/api';
 
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
+  forceRelay: process.env.RA_FORCE_RELAY === '1',
 };
+const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
 
 // See the host: real LAN addresses instead of mDNS names for a peer you chose to connect to.
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
@@ -23,6 +17,7 @@ const PROBE_SIZE = { width: 520, height: 20 };
 
 let mainWindow: BrowserWindow | null = null;
 let probeWindow: BrowserWindow | null = null;
+const handle = trustedHandler(() => mainWindow);
 
 const sandboxed = {
   sandbox: true,
@@ -31,11 +26,6 @@ const sandboxed = {
   spellcheck: false,
   backgroundThrottling: false,
 } as const;
-
-function lockDown(win: BrowserWindow): void {
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', (event) => event.preventDefault());
-}
 
 function loadPage(win: BrowserWindow, page: 'index' | 'probe'): void {
   const devServer = process.env.ELECTRON_RENDERER_URL;
@@ -106,30 +96,16 @@ function hideProbe(): void {
   probeWindow?.close();
 }
 
-function isMainFrame(frame: WebFrameMain | null): boolean {
-  const main = mainWindow?.webContents.mainFrame;
-  return (
-    !!frame && !!main && frame.processId === main.processId && frame.routingId === main.routingId
-  );
-}
-
-function handle(channel: string, listener: (...args: unknown[]) => unknown): void {
-  ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-    if (event.sender !== mainWindow?.webContents || !isMainFrame(event.senderFrame)) {
-      throw new Error(`Rejected ${channel} from an unexpected sender`);
-    }
-    return listener(...args);
-  });
-}
-
 function registerIpc(): void {
   handle(Channels.config, () => config);
-  handle(Channels.copy, (text) => {
-    if (typeof text !== 'string' || text.length > 50_000) throw new Error('Invalid clipboard text');
-    clipboard.writeText(text);
-  });
   handle(Channels.showProbe, () => showProbe());
   handle(Channels.hideProbe, () => hideProbe());
+  registerSignalingBridge({
+    url: signalingUrl,
+    role: 'helper',
+    handle,
+    getWindow: () => mainWindow,
+  });
 }
 
 void app.whenReady().then(() => {

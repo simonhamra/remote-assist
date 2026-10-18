@@ -2,7 +2,7 @@
 
 **Working name.** This is a lightweight remote-support app for helping a family member, starting with Grandma. It should feel like sitting next to her, and she always stays in control.
 
-> **Status:** Phase 0 (foundations) and Phase 1 (screen-streaming spike) are built for macOS. The host shares its screen with the helper over WebRTC, using copy-paste codes; there is no server yet. See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
+> **Status:** Phases 0–2 are built for macOS. The host shares its screen with the helper over WebRTC. A small signaling server matches them with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). There's no remote control or consent screen yet (Phases 3–4). See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
 
 ## The idea in one picture
 
@@ -20,7 +20,7 @@
                └────────────►┌──────────────────────┐◄────────────┘
                              │  YOUR SMALL SERVER   │
                              │  Signaling (Node.js) │   never sees the screen,
-                             │  SQLite: keys + meta │   only relays signed
+                             │  (no database yet)   │   only relays the
                              │  coturn (TURN relay) │   handshake messages
                              └──────────────────────┘
 ```
@@ -49,7 +49,7 @@ After a one-time setup, the session itself raises **no OS permission prompts**. 
 - **Both apps:** Electron + TypeScript + React. Chromium supplies screen capture, hardware video encoding and the full WebRTC stack.
 - **Input injection:** a small Rust native module (napi-rs + [`enigo`](https://github.com/enigo-rs/enigo)) that runs inside the host app.
 - **Transport:** WebRTC peer-to-peer, with H.264 video and two data channels for input. Media is encrypted end to end with DTLS-SRTP.
-- **Server:** Node.js + Fastify + WebSocket signaling, SQLite, and coturn for TURN, behind Caddy for automatic TLS. Docker Compose runs it on one small VPS.
+- **Server:** Node.js + `ws` WebSocket signaling (TypeScript run directly by Node) and coturn for TURN, behind Caddy for automatic TLS. Docker Compose runs it on one small VPS. SQLite arrives once there's something to keep (session history, pairings).
 - **Identity:** an Ed25519 key per device, created on first launch and stored with the OS keychain. There are no passwords. Trust comes from a one-time pairing with a code and confirmation words.
 
 ## Run it
@@ -59,34 +59,35 @@ Requires macOS 13 or later and Node.js 24 (see `.nvmrc`).
 ```bash
 npm install
 npm run check      # typecheck, lint, format check, unit tests
-npm run e2e        # builds both apps and runs the end-to-end test
+npm run e2e        # builds both apps and runs the end-to-end tests
 ```
 
-The end-to-end test opens both apps for a few seconds. They share a synthetic **test screen** (`RA_FAKE_SCREEN=1`), so no Screen Recording permission is needed. The test swaps the codes, waits for video, and measures latency.
+The end-to-end tests start the signaling server and open both apps for a few seconds each. The apps share a synthetic **test screen** (`RA_FAKE_SCREEN=1`), so no Screen Recording permission is needed. One test connects directly, after first trying a wrong code. The other forces the connection through a local TURN relay. Both wait for video and measure latency.
 
 ### Try it with your real screen (one Mac)
 
-1. In **Terminal**, start the host with `npm run dev:host`. In a second Terminal tab, start the helper with `npm run dev:helper`.
+1. In **Terminal**, start the server with `npm run dev:server`. In two more Terminal tabs, start the host with `npm run dev:host` and the helper with `npm run dev:helper`.
 2. In the host window, click **Start sharing my screen**. macOS asks for Screen Recording permission. In development, the request is for **Terminal**, the app that launched Electron, not for Remote Assist. Allow it in System Settings, quit both apps, and start them again. Turn it off again when you're done: while it's on, anything started from Terminal can record the screen.
-3. Copy the invite code into the helper, click **Connect**, then copy the reply code back into the host.
+3. The host shows an 8-digit number. Type it into the helper and click **Connect**.
 4. In the helper, click **Latency probe**. A small black-and-white strip appears at the bottom-left of your main display. The helper reads it back from the video and shows glass-to-glass latency in the stats overlay (⌘⇧S toggles the overlay).
 
-**Between two Macs:** run the host on one Mac and the helper on the other, both on the same network, and send the codes by Messages or email. There's no STUN/TURN server yet (that's Phase 2), so different networks won't connect. macOS 15+ may ask for **Local Network** access the first time. That prompt is expected, and the plan says to test for it.
+**Between two Macs on the same network:** on the Mac that runs the server, start it with `HOST=0.0.0.0 npm run dev:server` so the other Mac can reach it. On both Macs, start the app with `RA_SIGNALING_URL=ws://<that Mac's IP>:8787/ws` in front of the command, for example `RA_SIGNALING_URL=ws://192.168.1.20:8787/ws npm run dev:helper`. macOS 15+ may ask for **Local Network** access the first time. That prompt is expected, and the plan says to test for it.
+
+**Across the internet:** deploy the server first ([infra/README.md](infra/README.md)), then use `RA_SIGNALING_URL=wss://your-domain/ws`.
 
 ### Measured so far (this Mac, test screen)
 
-| Measure | Result | Phase 1 target |
-|---|---|---|
-| Glass-to-glass latency | **40 ms** median, 58 ms p95 | < 100 ms |
-| Resolution | 1920 × 1080, H.264 | 1080p |
-| Path | direct, host ↔ host UDP | — |
-| Host app CPU | ~2% of one core | < 25% |
+| Measure | Direct | Through the TURN relay | Target |
+|---|---|---|---|
+| Glass-to-glass latency | **38 ms** median, 57 ms p95 | **42 ms** median, 59 ms p95 | < 100 ms direct, < 250 ms relayed |
+| Resolution | 1920 × 1080, H.264 | 1920 × 1080, H.264 | 1080p |
+| Host app CPU | ~2% of one core | ~2% of one core | < 25% |
 
-The test screen skips real capture, so measure with your real screen (steps above) and on a Mac as old as Grandma's before calling Phase 1 done.
+Both apps and the relay run on one Mac here, so these numbers leave out real network distance. The test screen also skips real capture. Measure with your real screen (steps above), on a Mac as old as Grandma's, and through the deployed server before calling these phases done.
 
 ## Open decisions
 
 1. **Grandma's macOS version.** Electron 44 needs **macOS 13 (Ventura) or later**. If her Mac runs macOS 12 or earlier, we pin Electron 43 or plan an OS upgrade.
 2. **Voice:** use a normal phone call during sessions for now, or build voice chat in from the start? Voice is cheap to add but brings a microphone permission.
-3. **Hosting:** a €5/month VPS (recommended), or managed services (Cloudflare Workers + Cloudflare TURN)? Needed for Phase 2.
+3. **Hosting:** the deploy files target a €5/month VPS with your own domain ([infra/README.md](infra/README.md)). This is needed before testing across different networks.
 4. **Build vs. adopt:** this plan builds a focused app. If you only need something working this week, self-hosting [RustDesk](https://github.com/rustdesk/rustdesk) is the fastest route (see [tech stack](docs/02-tech-stack.md#build-vs-adopt)).

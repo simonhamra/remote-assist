@@ -41,13 +41,17 @@ The phases are ordered so that **the riskiest unknowns (latency, injection, perm
 
 ## Phase 2: Signaling server and TURN
 
-- [ ] Fastify + `ws` server: device registration (public key), challenge-response login, presence, and relaying messages between paired devices
-- [ ] SQLite schema: `devices`, `pairings`, `pairing_codes`, `sessions`
-- [ ] coturn with `use-auth-secret`, TLS on 443, and a `/turn-credentials` endpoint
-- [ ] `infra/docker-compose.yml`: Caddy, signaling and coturn, plus a nightly SQLite backup
-- [ ] Apps fetch ICE servers from the server and use ICE restart on network change
+- [x] Signaling server (Node.js + `ws` + zod, TypeScript run directly by Node): 8-digit single-use session codes valid 10 minutes, relaying offers, answers and trickle ICE candidates, rate limits per address and per connection, heartbeats, browser origins refused, privacy-preserving logs
+- [x] Signaling runs in each app's **main process** (`packages/desktop`), so renderers make no network connections and keep their strict CSP
+- [x] TURN credentials minted per session for coturn's `use-auth-secret` (HMAC, expiring, nothing stored)
+- [x] `infra/`: Docker Compose with Caddy (automatic HTTPS), signaling and coturn (hardened: no relaying into private networks, quotas, bandwidth cap), plus a deploy guide
+- [x] Apps get their ICE servers from the server; the host restarts ICE after a network change and a session survives drops of up to 15 s
+- [ ] **Deploy to a VPS** and test across two real networks (you: domain + VPS, then [infra/README.md](../infra/README.md))
+- Moved: device registration and challenge-response login now come with pairing (Phase 5), since device keys are only useful once they're pinned. SQLite arrives with session history (Phase 4). TURN over TLS on 443 comes later (it needs a second IP or SNI routing).
 
 **Exit:** connects host ↔ helper on two different networks (home Wi-Fi ↔ phone hotspot), and connects with `iceTransportPolicy: "relay"` forced (proving TURN works).
+
+**Results so far** (end-to-end tests on this Mac, synthetic test screen): direct through the signaling server at **38 ms** median glass-to-glass, and relay-only through a local TURN server at **42 ms**, both at 1080p H.264. The local TURN server is a small JavaScript stand-in for coturn using the same expiring credentials. Real coturn and real networks are tested at deployment.
 
 ## Phase 3: Remote input
 

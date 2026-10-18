@@ -1,24 +1,28 @@
 import {
+  isMainFrame,
+  lockDown,
+  registerSignalingBridge,
+  trustedHandler,
+} from '@remote-assist/desktop/main';
+import {
   app,
   BrowserWindow,
-  clipboard,
   desktopCapturer,
-  ipcMain,
   screen,
   session,
   shell,
   systemPreferences,
   type DisplayMediaRequestHandlerHandlerRequest,
-  type IpcMainInvokeEvent,
   type Streams,
-  type WebFrameMain,
 } from 'electron';
 import { join } from 'node:path';
 import { Channels, type AppConfig, type ScreenPermission } from '../shared/api';
 
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
+  forceRelay: process.env.RA_FORCE_RELAY === '1',
 };
+const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
 
 // The peer is someone you paired with on purpose, so share real LAN addresses instead of mDNS
 // names. mDNS resolution needs multicast, which is less reliable and more likely to trigger
@@ -26,6 +30,7 @@ const config: AppConfig = {
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let mainWindow: BrowserWindow | null = null;
+const handle = trustedHandler(() => mainWindow);
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -47,8 +52,7 @@ function createWindow(): BrowserWindow {
     },
   });
   win.once('ready-to-show', () => win.show());
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', (event) => event.preventDefault());
+  lockDown(win);
 
   const devServer = process.env.ELECTRON_RENDERER_URL;
   if (devServer) void win.loadURL(devServer);
@@ -56,18 +60,13 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function isMainFrame(frame: WebFrameMain | null): boolean {
-  const main = mainWindow?.webContents.mainFrame;
-  return (
-    !!frame && !!main && frame.processId === main.processId && frame.routingId === main.routingId
-  );
-}
-
 /** Only our own window may capture, only the screen, and only right after a button press. */
 async function chooseScreen(
   request: DisplayMediaRequestHandlerHandlerRequest,
 ): Promise<Streams | null> {
-  if (!isMainFrame(request.frame) || !request.userGesture || !request.videoRequested) return null;
+  if (!isMainFrame(mainWindow, request.frame) || !request.userGesture || !request.videoRequested) {
+    return null;
+  }
   const sources = await desktopCapturer.getSources({
     types: ['screen'],
     thumbnailSize: { width: 0, height: 0 },
@@ -90,21 +89,8 @@ function configureSession(): void {
   });
 }
 
-function handle(channel: string, listener: (...args: unknown[]) => unknown): void {
-  ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-    if (event.sender !== mainWindow?.webContents || !isMainFrame(event.senderFrame)) {
-      throw new Error(`Rejected ${channel} from an unexpected sender`);
-    }
-    return listener(...args);
-  });
-}
-
 function registerIpc(): void {
   handle(Channels.config, () => config);
-  handle(Channels.copy, (text) => {
-    if (typeof text !== 'string' || text.length > 50_000) throw new Error('Invalid clipboard text');
-    clipboard.writeText(text);
-  });
   handle(Channels.screenPermission, (): ScreenPermission => {
     if (process.platform !== 'darwin') return 'granted';
     const status = systemPreferences.getMediaAccessStatus('screen');
@@ -125,6 +111,7 @@ function registerIpc(): void {
   handle(Channels.cpu, () =>
     app.getAppMetrics().reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0),
   );
+  registerSignalingBridge({ url: signalingUrl, role: 'host', handle, getWindow: () => mainWindow });
 }
 
 void app.whenReady().then(() => {

@@ -12,6 +12,8 @@
     "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json"
   },
   "dependencies": {
+    "@remote-assist/desktop": "*",
+    "@remote-assist/protocol": "*",
     "@remote-assist/rtc": "*",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"

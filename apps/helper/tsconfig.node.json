@@ -10,6 +10,9 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
-    "../../tooling/**/*.ts"
-  ]
+    "../../tooling/**/*.ts",
+    "../../packages/desktop/src/**/*.ts",
+    "../../packages/protocol/src/**/*.ts"
+  ],
+  "exclude": ["../../packages/*/src/**/*.test.ts"]
 }

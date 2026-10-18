@@ -26,11 +26,12 @@ remote-assist/
 │  ├─ host/            Electron app installed on Grandma's computer
 │  └─ helper/          Electron app on your desktop
 ├─ packages/
-│  ├─ protocol/        Message types, zod schemas, binary pointer codec
-│  ├─ crypto/          Device identity, signing/verification, confirmation words
-│  ├─ rtc/             Shared RTCPeerConnection setup + tuning
-│  └─ native-input/    Rust (napi-rs + enigo) mouse/keyboard injector
-├─ server/             Signaling + pairing API (Fastify + ws + SQLite)
+│  ├─ protocol/        Signaling messages (zod schemas) + client; later the input protocol
+│  ├─ desktop/         Electron main-process helpers: IPC checks, signaling bridge
+│  ├─ rtc/             Shared RTCPeerConnection setup, tuning, stats, latency probe
+│  ├─ crypto/          (Phase 5) Device identity, signing/verification, confirmation words
+│  └─ native-input/    (Phase 3) Rust (napi-rs + enigo) mouse/keyboard injector
+├─ server/             Signaling: session codes, relay, TURN credentials (ws + zod)
 └─ infra/              docker-compose.yml, Caddyfile, turnserver.conf
 ```
 
@@ -63,7 +64,7 @@ remote-assist/
 | **WebSocket hub** | Authenticated, persistent connection per device, used for presence and for relaying **signed** messages between paired devices. |
 | **Pairing API** | Issues and redeems short-lived pairing codes. Codes are stored hashed and rate-limited. |
 | **TURN credentials** | Mints time-limited coturn credentials using the coturn REST-API shared secret. |
-| **SQLite** | Device public keys, display names, pairing relationships, and session metadata (start, end, reason). **No screen data, no keystrokes.** |
+| **SQLite** (Phase 4+) | Device public keys, display names, pairing relationships, and session metadata (start, end, reason). **No screen data, no keystrokes.** Until then the server keeps only in-memory rooms. |
 | **coturn** | Relay for networks where peer-to-peer fails, roughly 10–20% of real-world cases. It only ever sees encrypted packets. |
 
 ## Flow 1: one-time pairing (trusted device)

@@ -1,0 +1,9 @@
+**/node_modules
+**/out
+**/*.test.ts
+.git
+docs
+e2e
+test-results
+playwright-report
+infra/.env

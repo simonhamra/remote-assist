@@ -180,6 +180,15 @@ textarea {
   resize: vertical;
 }
 
+.session-code {
+  margin: 4px 0;
+  font-size: 3.4rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
 .status {
   margin: 0;
   font-size: 1.2rem;

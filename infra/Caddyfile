@@ -1,0 +1,7 @@
+# Caddy gets and renews the HTTPS certificate for $DOMAIN automatically.
+{$DOMAIN} {
+	# The signaling WebSocket and its health check; nothing else is served.
+	@signaling path /ws /healthz
+	reverse_proxy @signaling signaling:8787
+	respond 404
+}

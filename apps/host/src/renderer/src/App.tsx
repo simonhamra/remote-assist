@@ -1,22 +1,14 @@
-import { SignalCodeError } from '@remote-assist/rtc';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { formatSessionCode } from '@remote-assist/protocol';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { AppConfig, ScreenPermission } from '../../shared/api';
-import { CodeBox, PasteBox } from './CodeFields';
 import { HostSession } from './hostSession';
 import { HostStats } from './HostStats';
-
-type Step =
-  | { name: 'idle' }
-  | { name: 'starting' }
-  | { name: 'invite'; session: HostSession; replied: boolean }
-  | { name: 'live'; session: HostSession }
-  | { name: 'ended'; message: string };
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [permission, setPermission] = useState<ScreenPermission>('unknown');
-  const [step, setStep] = useState<Step>({ name: 'idle' });
-  const [connection, setConnection] = useState<RTCPeerConnectionState>('new');
+  const [session, setSession] = useState<HostSession | null>(null);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,73 +23,19 @@ export function App() {
     return () => window.removeEventListener('focus', refresh);
   }, []);
 
-  const session = step.name === 'invite' || step.name === 'live' ? step.session : null;
-
-  const end = useCallback((ending: HostSession, message: string) => {
-    ending.stop();
-    setStep({ name: 'ended', message });
-  }, []);
-
-  useEffect(() => {
-    if (!session) return;
-    const onState = () => {
-      const state = session.pc.connectionState;
-      setConnection(state);
-      if (state === 'connected') {
-        setStep((current) => (current.name === 'invite' ? { name: 'live', session } : current));
-      } else if (state === 'failed') {
-        end(session, 'The connection was lost. Start again and send a new invite code.');
-      }
-    };
-    const onTrackEnded = () => end(session, 'Screen sharing was stopped outside the app.');
-    session.pc.addEventListener('connectionstatechange', onState);
-    session.track.addEventListener('ended', onTrackEnded);
-    return () => {
-      session.pc.removeEventListener('connectionstatechange', onState);
-      session.track.removeEventListener('ended', onTrackEnded);
-    };
-  }, [session, end]);
-
   const start = async () => {
     if (!config) return;
     setError(null);
-    setConnection('new');
-    setStep({ name: 'starting' });
+    setStarting(true);
     try {
-      const started = await HostSession.start(config.fakeScreen);
-      setStep({ name: 'invite', session: started, replied: false });
+      setSession(await HostSession.start(config));
     } catch (startError) {
       console.error(startError);
-      setStep({ name: 'idle' });
       setError(describeStartError(startError));
       void window.hostApi.screenPermission().then(setPermission);
+    } finally {
+      setStarting(false);
     }
-  };
-
-  const connect = async (code: string) => {
-    if (step.name !== 'invite') return;
-    const inviting = step.session;
-    setError(null);
-    try {
-      await inviting.acceptReply(code);
-      // The connection may already be live by now, so only update a step that is still waiting.
-      setStep((current) =>
-        current.name === 'invite' && current.session === inviting
-          ? { ...current, replied: true }
-          : current,
-      );
-    } catch (replyError) {
-      console.error(replyError);
-      setError(
-        replyError instanceof SignalCodeError
-          ? replyError.message
-          : 'This reply code does not match the current invite. Ask your helper to use the newest invite code.',
-      );
-    }
-  };
-
-  const stop = () => {
-    if (session) end(session, 'You stopped sharing your screen.');
   };
 
   return (
@@ -118,81 +56,90 @@ export function App() {
         </p>
       )}
 
-      {(step.name === 'idle' || step.name === 'starting') && (
+      {session ? (
+        <SessionView session={session} onDone={() => setSession(null)} />
+      ) : (
         <button
           type="button"
           className="primary big"
           onClick={() => void start()}
-          disabled={!config || step.name === 'starting'}
+          disabled={!config || starting}
         >
-          {step.name === 'starting' ? 'Starting…' : 'Start sharing my screen'}
+          {starting ? 'Starting…' : 'Start sharing my screen'}
         </button>
       )}
+    </main>
+  );
+}
 
-      {step.name === 'invite' && (
-        <>
-          <section className="card">
-            <h2>
-              <span className="step-number">1</span> Send this invite code to your helper
-            </h2>
-            <CodeBox
-              value={step.session.inviteCode}
-              testId="invite-code"
-              label="Invite code"
-              onCopy={window.hostApi.copyText}
-            />
-          </section>
-          <section className="card">
-            <h2>
-              <span className="step-number">2</span> Paste the reply code from your helper
-            </h2>
-            {step.replied ? (
-              <p className="status" data-testid="status">
-                Connecting…
-              </p>
-            ) : (
-              <PasteBox
-                testId="reply-input"
-                label="Reply code"
-                buttonLabel="Connect"
-                onSubmit={connect}
-              />
-            )}
-          </section>
-          <button type="button" className="secondary" onClick={stop}>
+function SessionView({ session, onDone }: { session: HostSession; onDone(): void }) {
+  const state = useSyncExternalStore(session.subscribe, session.getState);
+  const cancel = () => {
+    session.stop();
+    onDone();
+  };
+
+  switch (state.name) {
+    case 'contacting':
+    case 'connecting':
+      return (
+        <section className="card">
+          <p className="status" data-testid="status">
+            {state.name === 'contacting' ? 'Getting your code…' : 'Your helper is connecting…'}
+          </p>
+          <button type="button" className="secondary" onClick={cancel}>
             Cancel
           </button>
-        </>
-      )}
-
-      {step.name === 'live' && (
+        </section>
+      );
+    case 'waiting':
+      return (
+        <section className="card">
+          <h2>Read this number to your helper</h2>
+          <p className="session-code" data-testid="session-code" aria-live="polite">
+            {formatSessionCode(state.code)}
+          </p>
+          <p className="hint">It works once, for the next 10 minutes.</p>
+          <button type="button" className="secondary" onClick={cancel}>
+            Cancel
+          </button>
+        </section>
+      );
+    case 'live': {
+      const pc = session.peerConnection;
+      return (
         <section className="card live">
           <p className="status live-status" data-testid="status">
             Your screen is being shared
           </p>
-          {connection === 'disconnected' && (
+          {state.reconnecting && (
             <p className="warning">The connection was interrupted. Trying to reconnect…</p>
           )}
-          <Preview stream={step.session.source.stream} />
-          <button type="button" className="danger big" onClick={stop} data-testid="stop">
+          <Preview stream={session.source.stream} />
+          <button
+            type="button"
+            className="danger big"
+            onClick={() => session.stop()}
+            data-testid="stop"
+          >
             Stop sharing
           </button>
-          <HostStats pc={step.session.pc} />
+          {pc && <HostStats pc={pc} />}
         </section>
-      )}
-
-      {step.name === 'ended' && (
+      );
+    }
+    case 'ended':
+      return (
         <section className="card">
           <p className="status" data-testid="status">
-            {step.message}
+            {state.message}
           </p>
-          <button type="button" className="primary" onClick={() => setStep({ name: 'idle' })}>
+          <button type="button" className="primary" onClick={onDone}>
             Share again
           </button>
         </section>
-      )}
-    </main>
-  );
+      );
+  }
 }
 
 function PermissionNotice({ permission }: { permission: ScreenPermission }) {
