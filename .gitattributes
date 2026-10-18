@@ -1,0 +1,3 @@
+# Check out text files with LF on every platform, so Prettier and the
+# Windows CI runner see the same line endings as macOS.
+* text=auto eol=lf
