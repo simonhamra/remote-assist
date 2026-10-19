@@ -30,6 +30,14 @@ const api: HostApi = {
   },
   recordSession: (record) => ipcRenderer.invoke(Channels.recordSession, record),
   sessionHistory: () => ipcRenderer.invoke(Channels.history),
+  setupState: () => ipcRenderer.invoke(Channels.setupState),
+  setSetupStep: (step) => ipcRenderer.invoke(Channels.setSetupStep, step),
+  completeSetup: () => ipcRenderer.invoke(Channels.completeSetup),
+  registerScreenRecording: () => ipcRenderer.invoke(Channels.registerScreenRecording),
+  accessibilityGranted: () => ipcRenderer.invoke(Channels.accessibilityGranted),
+  startAtLogin: () => ipcRenderer.invoke(Channels.startAtLogin),
+  setStartAtLogin: (enabled) => ipcRenderer.invoke(Channels.setStartAtLogin, enabled),
+  relaunch: () => ipcRenderer.invoke(Channels.relaunch),
 };
 
 contextBridge.exposeInMainWorld('hostApi', api);

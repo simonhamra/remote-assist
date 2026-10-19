@@ -49,7 +49,8 @@ export const signalData = z.discriminatedUnion('kind', [
   /** Helper → host, right after joining: who is asking to help, for the consent screen. */
   z.object({ kind: z.literal('intro'), name: displayName }),
   /** Host → helper: the person said no, or didn't answer in time. Nothing was shared. */
-  z.object({ kind: z.literal('declined'), reason: z.enum(['no', 'timeout']) }),
+  // `unavailable`: they said yes, but their screen could not be shared (usually a permission).
+  z.object({ kind: z.literal('declined'), reason: z.enum(['no', 'timeout', 'unavailable']) }),
 ]);
 export type SignalData = z.infer<typeof signalData>;
 

@@ -142,6 +142,8 @@ export class HostSession {
       this.source = this.options.fakeScreen ? startFakeScreen() : await captureScreen();
     } catch (error) {
       console.error(error);
+      // Tell the helper why, so they can talk the person through the permission.
+      void window.hostApi.sendSignal({ kind: 'declined', reason: 'unavailable' });
       this.end(describeCaptureError(error), 'error');
       return;
     }
@@ -244,7 +246,7 @@ export class HostSession {
     if (command === 'pause') this.pause();
     else if (command === 'resume') this.resume();
     else if (command === 'stop') this.stop();
-    else this.end('Your screen locked, so the session ended.', 'locked');
+    else this.end('Your screen locked, so sharing stopped.', 'locked');
   };
 
   private readonly onTimer = (event: TimerEvent): void => {
@@ -253,9 +255,9 @@ export class HostSession {
     } else if (event.t === 'idle-warning') {
       this.sendPeer({ t: 'idle', secondsLeft: event.secondsLeft });
     } else if (event.t === 'idle-ended') {
-      this.end('The session ended because nothing happened for a while.', 'idle');
+      this.end('Sharing stopped because nothing happened for a while.', 'idle');
     } else {
-      this.end('The session reached its time limit.', 'time-limit');
+      this.end('Sharing stopped: it reached its time limit.', 'time-limit');
     }
   };
 
@@ -482,7 +484,7 @@ async function captureScreen(): Promise<ScreenSource> {
 
 function describeCaptureError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') {
-    return 'macOS did not allow screen recording. Turn it on in System Settings, then quit and reopen the app.';
+    return 'Your Mac did not allow screen sharing. Turn it on in System Settings (Privacy & Security, then Screen Recording), then quit and reopen Remote Assist.';
   }
   if (error instanceof DOMException && error.name === 'NotFoundError') {
     return 'No screen was found to share.';

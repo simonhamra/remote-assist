@@ -181,7 +181,7 @@ test('locking the screen ends the session at once', async () => {
     await connect(host, helper);
     await host.application.evaluate(({ powerMonitor }) => powerMonitor.emit('lock-screen'));
     await expect(host.page.getByTestId('status')).toHaveText(
-      'Your screen locked, so the session ended.',
+      'Your screen locked, so sharing stopped.',
     );
     await expect(helper.page.getByTestId('status')).toHaveText(
       'They stopped sharing their screen.',

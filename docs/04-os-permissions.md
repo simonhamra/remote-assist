@@ -69,12 +69,19 @@ Nothing, for basic use. Touch ID uses LocalAuthentication and needs no privacy p
 ## Setup assistant (host first run): target ~10 minutes on the phone
 
 ```
-1. Welcome            "Alex set this up so they can help you with your computer."
+1. Welcome            "Nothing is ever shared unless you say yes first."
 2. Pair               big 8-digit code → read it to Alex → confirm 3 words
-3. Screen Recording   picture + "Open Settings" → switch on → app relaunches itself
-4. Accessibility      picture + "Open Settings" → switch on → ✔ detected
-5. (Local Network)    only if it appeared in testing
-6. Start at login     on by default, explained in one sentence
-7. Test call          Alex connects once and she practices: Yes → Pause → Stop
-8. Done               "You're all set. When you need help, call Alex."
+3. Screen Recording   "Open System Settings" → switch on → macOS offers Quit & Reopen → ✔ detected
+4. Accessibility      "Open System Settings" → switch on → ✔ detected (optional: "Not now")
+5. (Local Network)    only if it appears in testing
+6. Start at login     "Yes, start with my computer" / "No, I will open it myself"
+7. Practice           a pretend question and session bar: No → Yes → Pause → Continue → Stop
+8. Done               "You can close this window. Remote Assist keeps waiting at the top of the screen."
 ```
+
+How it is built (Phase 6):
+
+- **Screen Recording.** macOS only lists apps that have asked once, so the button first asks (a screen list with no thumbnails: nothing is captured), which shows macOS's own question, then opens the Screen Recording pane. Switching the app on makes macOS offer **Quit & Reopen**. The setup step is saved, so the app reopens on the same screen and shows ✔. The installed app also has a **Restart** button for when she dismisses that offer.
+- **Accessibility.** The button adds the app to the list (switched off) and opens the pane. The step polls `AXIsProcessTrusted()` every two seconds and when the window comes back to the front. This permission applies without a restart.
+- **Start at login** uses the system's login items (`SMAppService` on macOS 13+), so she can see and remove it in System Settings → General → Login Items. When macOS reports that it started the app at login (and setup is done), the app opens in the menu bar only, without its window. That report still needs checking with the installed app.
+- Every step can be skipped and done later; the start screen keeps reminding her if Screen Recording is off. The practice run captures and sends nothing.

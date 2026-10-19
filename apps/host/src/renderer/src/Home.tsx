@@ -55,6 +55,10 @@ export function Home({
         </button>
       )}
       <RecentSessions />
+      <p className="hint footnote">
+        You can close this window. Remote Assist keeps waiting at the top of the screen, as a small
+        circle next to the clock, and comes back when someone asks to help.
+      </p>
     </>
   );
 }
