@@ -20,10 +20,22 @@ const iceCandidate = z.object({
   usernameFragment: z.string().max(256).nullish(),
 });
 
+/** A name to show people: no control or invisible formatting characters (no spoofing tricks). */
+export const displayName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(40)
+  .regex(/^[^\p{Cc}\p{Cf}]+$/u);
+
 export const signalData = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('offer'), sdp }),
   z.object({ kind: z.literal('answer'), sdp }),
   z.object({ kind: z.literal('candidate'), candidate: iceCandidate }),
+  /** Helper → host, right after pairing: who is asking to help, for the consent screen. */
+  z.object({ kind: z.literal('intro'), name: displayName }),
+  /** Host → helper: the person said no, or didn't answer in time. Nothing was shared. */
+  z.object({ kind: z.literal('declined'), reason: z.enum(['no', 'timeout']) }),
 ]);
 export type SignalData = z.infer<typeof signalData>;
 

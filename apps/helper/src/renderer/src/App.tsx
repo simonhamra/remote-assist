@@ -1,4 +1,4 @@
-import { normalizeSessionCode } from '@remote-assist/protocol';
+import { displayName, normalizeSessionCode } from '@remote-assist/protocol';
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
 import type { AppConfig } from '../../shared/api';
 import { HelperSession, type HelperState } from './helperSession';
@@ -6,6 +6,23 @@ import { Viewer } from './Viewer';
 
 const noSubscription = () => () => {};
 const noState = () => null;
+const NAME_KEY = 'helperName';
+
+function savedName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function saveName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name);
+  } catch {
+    // Not remembered next time; nothing else depends on it.
+  }
+}
 
 function useSessionState(session: HelperSession | null): HelperState | null {
   return useSyncExternalStore(
@@ -30,7 +47,8 @@ export function App() {
     }
   }
 
-  const connecting = state?.name === 'contacting' || state?.name === 'connecting';
+  const connecting =
+    state?.name === 'contacting' || state?.name === 'waiting' || state?.name === 'connecting';
   const endedAfterLive = state?.name === 'ended' && state.wasLive;
   // A failed attempt goes back to the code form, with the reason.
   const failure = state?.name === 'ended' && !state.wasLive ? state.message : null;
@@ -40,7 +58,7 @@ export function App() {
       <header>
         <h1>Help someone</h1>
         <p className="lead">
-          Ask them to press “Start sharing my screen” in Remote Assist and read you the number.
+          Ask them to press “Get help from someone” in Remote Assist and read you the number.
         </p>
         {config?.fakeScreen && <p className="badge">Test mode: the host shares a fake screen</p>}
       </header>
@@ -48,7 +66,9 @@ export function App() {
       {connecting && session && (
         <section className="card">
           <p className="status" data-testid="status">
-            Connecting…
+            {state?.name === 'waiting'
+              ? 'Waiting for them to say yes on their screen…'
+              : 'Connecting…'}
           </p>
           <button type="button" className="secondary" onClick={() => session.disconnect()}>
             Cancel
@@ -68,26 +88,42 @@ export function App() {
       )}
 
       {!connecting && !endedAfterLive && config && (
-        <CodeForm error={failure} onJoin={(code) => setSession(HelperSession.join(code, config))} />
+        <CodeForm
+          error={failure}
+          onJoin={(code, name) => setSession(HelperSession.join(code, { ...config, name }))}
+        />
       )}
     </main>
   );
 }
 
-function CodeForm({ error, onJoin }: { error: string | null; onJoin(code: string): void }) {
+function CodeForm({
+  error,
+  onJoin,
+}: {
+  error: string | null;
+  onJoin(code: string, name: string): void;
+}) {
   const [input, setInput] = useState('');
+  const [name, setName] = useState(savedName);
   const [problem, setProblem] = useState<string | null>(null);
   const shown = problem ?? error;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const code = normalizeSessionCode(input);
+    const checkedName = displayName.safeParse(name);
+    if (!checkedName.success) {
+      setProblem('Enter your name (up to 40 characters): they will see it before saying yes.');
+      return;
+    }
     if (code.length !== 8) {
       setProblem('The code has 8 digits.');
       return;
     }
     setProblem(null);
-    onJoin(code);
+    saveName(checkedName.data);
+    onJoin(code, checkedName.data);
   };
 
   return (
@@ -98,6 +134,16 @@ function CodeForm({ error, onJoin }: { error: string | null; onJoin(code: string
           {shown}
         </p>
       )}
+      <label className="field">
+        Your name, as they will see it
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoComplete="name"
+          maxLength={40}
+          data-testid="name-input"
+        />
+      </label>
       <input
         className="code-input"
         value={input}

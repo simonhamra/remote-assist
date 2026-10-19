@@ -7,25 +7,37 @@ import {
   trustedListener,
 } from '@remote-assist/desktop/main';
 import { InputAgent } from '@remote-assist/native-input';
-import { parseInputEvent } from '@remote-assist/protocol';
+import { displayName, parseInputEvent } from '@remote-assist/protocol';
 import {
   app,
   BrowserWindow,
   desktopCapturer,
+  powerMonitor,
   screen,
   session,
   shell,
   systemPreferences,
+  type Display,
   type DisplayMediaRequestHandlerHandlerRequest,
   type Streams,
 } from 'electron';
 import { join } from 'node:path';
-import { Channels, type AppConfig, type ControlStatus, type ScreenPermission } from '../shared/api';
+import {
+  Channels,
+  type AppConfig,
+  type ControlStatus,
+  type ScreenPermission,
+  type SessionCommand,
+} from '../shared/api';
+import { SessionHistory, isSessionRecord } from './history';
 import { InputController } from './inputController';
+import { SessionChrome } from './sessionChrome';
 
+const testConsentMs = Number(process.env.RA_TEST_CONSENT_MS);
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
   forceRelay: process.env.RA_FORCE_RELAY === '1',
+  ...(testConsentMs > 0 ? { consentMs: testConsentMs } : {}),
 };
 const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
 /** RA_INPUT_DRY_RUN=1: log input events instead of posting them (tests; no permission needed). */
@@ -37,10 +49,21 @@ const inputDryRun = process.env.RA_INPUT_DRY_RUN === '1';
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let mainWindow: BrowserWindow | null = null;
-/** The display chosen for capture; remote input is mapped onto the same one. */
+/** The display chosen for capture; remote input and the session border use the same one. */
 let capturedDisplayId: string | null = null;
 const handle = trustedHandler(() => mainWindow);
 const listen = trustedListener(() => mainWindow);
+
+function loadPage(win: BrowserWindow, page: 'index' | 'bar' | 'border'): void {
+  const devServer = process.env.ELECTRON_RENDERER_URL;
+  if (devServer) void win.loadURL(`${devServer}/${page}.html`);
+  else void win.loadFile(join(__dirname, `../renderer/${page}.html`));
+}
+
+const chrome = new SessionChrome({
+  barPreload: join(__dirname, '../preload/bar.js'),
+  load: loadPage,
+});
 
 const agent = new InputAgent(
   app.isPackaged
@@ -55,16 +78,20 @@ const agent = new InputAgent(
   },
 );
 
+function capturedDisplay(): Display {
+  return (
+    screen.getAllDisplays().find((d) => String(d.id) === capturedDisplayId) ??
+    screen.getPrimaryDisplay()
+  );
+}
+
 const input = new InputController({
   send: (command) => agent.send(command),
-  display: () => {
-    const displays = screen.getAllDisplays();
-    return (displays.find((d) => String(d.id) === capturedDisplayId) ?? screen.getPrimaryDisplay())
-      .bounds;
-  },
+  display: () => capturedDisplay().bounds,
+  // The windows Grandma uses to stay in control. (The screen border lets clicks through.)
   ownWindows: () =>
-    BrowserWindow.getAllWindows()
-      .filter((w) => w.isVisible() && !w.isMinimized())
+    [mainWindow, chrome.barWindow]
+      .filter((w): w is BrowserWindow => !!w && w.isVisible() && !w.isMinimized())
       .map((w) => w.getBounds()),
   ownWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
 });
@@ -79,10 +106,14 @@ function controlStatus(helperMachine: unknown): ControlStatus {
   return trusted ? { available: true } : { available: false, reason: 'permission' };
 }
 
+function sendCommand(command: SessionCommand): void {
+  mainWindow?.webContents.send(Channels.sessionCommand, command);
+}
+
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 540,
-    height: 820,
+    width: 560,
+    height: 860,
     minWidth: 460,
     minHeight: 600,
     title: 'Remote Assist',
@@ -100,10 +131,7 @@ function createWindow(): BrowserWindow {
   });
   win.once('ready-to-show', () => win.show());
   lockDown(win);
-
-  const devServer = process.env.ELECTRON_RENDERER_URL;
-  if (devServer) void win.loadURL(devServer);
-  else void win.loadFile(join(__dirname, '../renderer/index.html'));
+  loadPage(win, 'index');
   return win;
 }
 
@@ -139,6 +167,8 @@ function configureSession(): void {
 }
 
 function registerIpc(): void {
+  const history = new SessionHistory(join(app.getPath('userData'), 'session-history.json'));
+
   handle(Channels.config, () => config);
   handle(Channels.screenPermission, (): ScreenPermission => {
     if (process.platform !== 'darwin') return 'granted';
@@ -179,6 +209,43 @@ function registerIpc(): void {
       'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
     );
   });
+
+  // A question is waiting: bring the window to the front and keep it there until answered.
+  handle(Channels.attention, (asking) => {
+    const win = mainWindow;
+    if (!win) return;
+    if (asking !== true) {
+      win.setAlwaysOnTop(false);
+      return;
+    }
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.setAlwaysOnTop(true, 'floating');
+    app.focus({ steal: true });
+    win.focus();
+    if (process.platform === 'darwin') app.dock?.bounce('critical');
+  });
+
+  handle(Channels.sessionChrome, (state) => {
+    if (state === null) {
+      chrome.hide();
+      return;
+    }
+    const { helperName, paused } = (state ?? {}) as Record<string, unknown>;
+    const name = displayName.safeParse(helperName);
+    if (!name.success || typeof paused !== 'boolean') throw new Error('Invalid session state');
+    chrome.show({ helperName: name.data, paused }, capturedDisplay());
+  });
+
+  // The session bar's buttons, passed on to the main window, which runs the session.
+  trustedListener(() => chrome.barWindow)(Channels.barCommand, (command) => {
+    if (command === 'pause' || command === 'resume' || command === 'stop') sendCommand(command);
+  });
+
+  handle(Channels.recordSession, async (record) => {
+    if (isSessionRecord(record)) await history.add(record);
+  });
+  handle(Channels.history, () => history.list());
 }
 
 void app.whenReady().then(() => {
@@ -186,11 +253,22 @@ void app.whenReady().then(() => {
   registerIpc();
   mainWindow = createWindow();
   // Whatever happens to the window, the helper loses the mouse and keyboard.
-  mainWindow.webContents.on('render-process-gone', () => input.setEnabled(false));
+  mainWindow.webContents.on('render-process-gone', () => {
+    input.setEnabled(false);
+    chrome.hide();
+  });
   mainWindow.on('closed', () => {
     input.setEnabled(false);
+    chrome.hide();
     mainWindow = null;
   });
+
+  // A locked screen, sleep or a switch to another user ends any session at once.
+  powerMonitor.on('lock-screen', () => sendCommand('screen-locked'));
+  powerMonitor.on('suspend', () => sendCommand('screen-locked'));
+  if (process.platform === 'darwin') {
+    powerMonitor.on('user-did-resign-active', () => sendCommand('screen-locked'));
+  }
 });
 
 // Closing the agent's input makes it release everything before it exits.

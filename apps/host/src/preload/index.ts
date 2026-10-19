@@ -1,7 +1,7 @@
 import { SessionChannels } from '@remote-assist/desktop/channels';
 import type { SignalingEvent } from '@remote-assist/protocol';
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import { Channels, type HostApi } from '../shared/api';
+import { Channels, type HostApi, type SessionCommand } from '../shared/api';
 
 const api: HostApi = {
   getConfig: () => ipcRenderer.invoke(Channels.config),
@@ -20,6 +20,15 @@ const api: HostApi = {
   setRemoteControl: (enabled, helperMachine) =>
     ipcRenderer.invoke(Channels.setRemoteControl, enabled, helperMachine),
   openAccessibilitySettings: () => ipcRenderer.invoke(Channels.openAccessibilitySettings),
+  requestAttention: (asking) => ipcRenderer.invoke(Channels.attention, asking),
+  setSessionChrome: (state) => ipcRenderer.invoke(Channels.sessionChrome, state),
+  onSessionCommand: (listener) => {
+    const forward = (_event: IpcRendererEvent, command: SessionCommand) => listener(command);
+    ipcRenderer.on(Channels.sessionCommand, forward);
+    return () => void ipcRenderer.removeListener(Channels.sessionCommand, forward);
+  },
+  recordSession: (record) => ipcRenderer.invoke(Channels.recordSession, record),
+  sessionHistory: () => ipcRenderer.invoke(Channels.history),
 };
 
 contextBridge.exposeInMainWorld('hostApi', api);

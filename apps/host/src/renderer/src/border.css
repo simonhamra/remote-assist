@@ -1,0 +1,13 @@
+/* A coloured frame around the shared screen. The window lets clicks through. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  box-sizing: border-box;
+  border: 6px solid rgb(229 83 75 / 90%);
+  border-radius: 10px;
+}

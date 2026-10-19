@@ -44,6 +44,26 @@ describe('parseServerMessage', () => {
   });
 });
 
+describe('consent signals', () => {
+  const signal = (data: unknown) => parseClientMessage(JSON.stringify({ t: 'signal', data }));
+
+  it('carry the helper name and the answer', () => {
+    expect(signal({ kind: 'intro', name: '  Alex ' })).toEqual({
+      t: 'signal',
+      data: { kind: 'intro', name: 'Alex' },
+    });
+    expect(signal({ kind: 'declined', reason: 'timeout' })).not.toBeNull();
+  });
+
+  it('refuse names that are empty, too long, or hide formatting tricks', () => {
+    expect(signal({ kind: 'intro', name: '   ' })).toBeNull();
+    expect(signal({ kind: 'intro', name: 'x'.repeat(41) })).toBeNull();
+    // A right-to-left override can make "Alex\u202Egnp.exe" display misleadingly.
+    expect(signal({ kind: 'intro', name: 'Alex\u202Eevil' })).toBeNull();
+    expect(signal({ kind: 'intro', name: 'Alex\nBank' })).toBeNull();
+  });
+});
+
 describe('session codes', () => {
   it('formats and normalizes', () => {
     expect(formatSessionCode('48271953')).toBe('4827 1953');

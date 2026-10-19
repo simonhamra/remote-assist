@@ -19,42 +19,55 @@ export type ControlState = Omit<Extract<PeerMessage, { t: 'control' }>, 't'>;
 
 export type HelperState =
   | { name: 'contacting' }
+  /** Paired: the person is being asked whether to let you help. */
+  | { name: 'waiting' }
   | { name: 'connecting' }
   | {
       name: 'live';
       reconnecting: boolean;
       stream: MediaStream | null;
       control: ControlState | null;
+      /** Only the person you help can pause, and only they can continue. */
+      paused: boolean;
+      /** When an idle session will end, if nothing happens before then. */
+      idleEndsAt: number | null;
     }
   | { name: 'ended'; message: string; wasLive: boolean };
+
+export interface HelperSessionOptions {
+  forceRelay: boolean;
+  machine: string;
+  /** Shown on the consent question on their screen. */
+  name: string;
+}
 
 /** How long a dropped connection may take to come back (the host restarts ICE) before ending. */
 const RECONNECT_GRACE_MS = 15_000;
 
 /** The helper's side of one session: joins with the host's code and receives the screen. */
 export class HelperSession {
-  private readonly forceRelay: boolean;
-  private readonly machine: string;
+  private readonly options: HelperSessionOptions;
   private readonly listeners = new Set<() => void>();
   private readonly stopListening: () => void;
   private state: HelperState = { name: 'contacting' };
   private pc: RTCPeerConnection | null = null;
   private stream: MediaStream | null = null;
   private control: ControlState | null = null;
+  private paused = false;
+  private idleEndsAt: number | null = null;
   private controlChannel: RTCDataChannel | null = null;
   private pointerChannel: RTCDataChannel | null = null;
   private wasLive = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private constructor(forceRelay: boolean, machine: string) {
-    this.forceRelay = forceRelay;
-    this.machine = machine;
+  private constructor(options: HelperSessionOptions) {
+    this.options = options;
     this.stopListening = window.helperApi.onSessionEvent(this.onEvent);
   }
 
-  static join(code: string, options: { forceRelay: boolean; machine: string }): HelperSession {
-    const session = new HelperSession(options.forceRelay, options.machine);
+  static join(code: string, options: HelperSessionOptions): HelperSession {
+    const session = new HelperSession(options);
     window.helperApi.joinSession(code).catch((error: unknown) => session.end(friendlyError(error)));
     return session;
   }
@@ -80,12 +93,25 @@ export class HelperSession {
 
   /** Pointer moves go on the unordered channel: a lost one is overtaken by the next. */
   sendPointer(x: number, y: number): void {
-    if (this.pointerChannel?.readyState === 'open')
+    if (this.pointerChannel?.readyState === 'open') {
       this.pointerChannel.send(encodePointerMove(x, y));
+    }
+    this.clearIdleWarning();
   }
 
   sendInput(event: InputEvent): void {
     this.sendPeer(event);
+    if (event.t !== 'release') this.clearIdleWarning();
+  }
+
+  private clearIdleWarning(): void {
+    if (this.idleEndsAt === null) return;
+    this.idleEndsAt = null;
+    this.updateLive({});
+  }
+
+  private updateLive(changes: Partial<Extract<HelperState, { name: 'live' }>>): void {
+    if (this.state.name === 'live') this.set({ ...this.state, ...changes });
   }
 
   private sendPeer(message: PeerMessage): void {
@@ -103,7 +129,14 @@ export class HelperSession {
         available: message.available,
         ...(message.reason ? { reason: message.reason } : {}),
       };
-      if (this.state.name === 'live') this.set({ ...this.state, control: this.control });
+      this.updateLive({ control: this.control });
+    } else if (message?.t === 'paused') {
+      this.paused = message.paused;
+      this.idleEndsAt = null;
+      this.updateLive({ paused: this.paused, idleEndsAt: null });
+    } else if (message?.t === 'idle') {
+      this.idleEndsAt = Date.now() + message.secondsLeft * 1000;
+      this.updateLive({ idleEndsAt: this.idleEndsAt });
     }
   }
 
@@ -112,9 +145,19 @@ export class HelperSession {
     switch (event.t) {
       case 'paired':
         this.connect(event.iceServers);
+        void window.helperApi.sendSignal({ kind: 'intro', name: this.options.name });
+        this.set({ name: 'waiting' });
         break;
       case 'signal':
-        void this.onSignal(event.data);
+        if (event.data.kind === 'declined') {
+          this.end(
+            event.data.reason === 'no'
+              ? 'They said no, so nothing was shared.'
+              : "They didn't answer in time, so nothing was shared.",
+          );
+        } else {
+          void this.onSignal(event.data);
+        }
         break;
       // Once live, the video connection no longer needs the server.
       case 'peer.left':
@@ -132,7 +175,7 @@ export class HelperSession {
   };
 
   private connect(iceServers: IceServer[]): void {
-    const pc = createPeerConnection(iceServers, this.forceRelay ? 'relay' : 'all');
+    const pc = createPeerConnection(iceServers, this.options.forceRelay ? 'relay' : 'all');
     this.pc = pc;
     pc.addEventListener('track', (event) => {
       tuneReceiver(event.receiver);
@@ -144,7 +187,7 @@ export class HelperSession {
         this.controlChannel = channel;
         channel.addEventListener('message', ({ data }) => this.onPeerMessage(data));
         channel.addEventListener('open', () =>
-          this.sendPeer({ t: 'hello', machine: this.machine }),
+          this.sendPeer({ t: 'hello', machine: this.options.machine }),
         );
       } else if (channel.label === 'ptr') {
         this.pointerChannel = channel;
@@ -159,7 +202,6 @@ export class HelperSession {
       }
     });
     pc.addEventListener('connectionstatechange', () => this.onConnectionState());
-    this.set({ name: 'connecting' });
   }
 
   private async onSignal(data: SignalData): Promise<void> {
@@ -168,6 +210,8 @@ export class HelperSession {
     try {
       if (data.kind === 'offer') {
         const first = !pc.remoteDescription;
+        // The first offer means they said yes.
+        if (this.state.name === 'waiting') this.set({ name: 'connecting' });
         await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
         const transceiver = pc.getTransceivers()[0];
         if (first && transceiver) preferVideoCodecs(transceiver, 'receive');
@@ -193,18 +237,29 @@ export class HelperSession {
       clearTimeout(this.graceTimer);
       this.graceTimer = undefined;
       this.wasLive = true;
-      this.set({ name: 'live', reconnecting: false, stream: this.stream, control: this.control });
+      this.set(this.liveState(false));
     } else if (state === 'disconnected' || state === 'failed') {
       if (!this.wasLive) {
         if (state === 'failed') this.end('Could not connect to their computer. Try again.');
         return;
       }
-      this.set({ name: 'live', reconnecting: true, stream: this.stream, control: this.control });
+      this.set(this.liveState(true));
       this.graceTimer ??= setTimeout(
         () => this.end('The connection was lost.'),
         RECONNECT_GRACE_MS,
       );
     }
+  }
+
+  private liveState(reconnecting: boolean): HelperState {
+    return {
+      name: 'live',
+      reconnecting,
+      stream: this.stream,
+      control: this.control,
+      paused: this.paused,
+      idleEndsAt: this.idleEndsAt,
+    };
   }
 
   private end(message: string): void {

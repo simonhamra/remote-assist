@@ -96,16 +96,19 @@ export async function launch(
   return { application, page: await application.firstWindow(), output };
 }
 
-/** Host starts sharing, helper types the code; resolves once the session is live. */
-export async function connect(
+export const HELPER_NAME = 'Alex';
+
+/** Host asks for help and shows a code; the helper types its name and the code. */
+export async function requestHelp(
   host: LaunchedApp,
   helper: LaunchedApp,
   options: { tryWrongCode?: boolean } = {},
 ): Promise<void> {
-  await host.page.getByRole('button', { name: 'Start sharing my screen' }).click();
+  await host.page.getByRole('button', { name: 'Get help from someone' }).click();
   const codeText = host.page.getByTestId('session-code');
   await expect(codeText).toHaveText(/^\d{4} \d{4}$/);
   const code = (await codeText.textContent()) ?? '';
+  await helper.page.getByTestId('name-input').fill(HELPER_NAME);
 
   if (options.tryWrongCode) {
     const wrong = code === '0000 0000' ? '1111 1111' : '0000 0000';
@@ -116,10 +119,30 @@ export async function connect(
 
   await helper.page.getByTestId('code-input').fill(code);
   await helper.page.getByRole('button', { name: 'Connect' }).click();
-  await expect(host.page.getByTestId('status')).toHaveText('Your screen is being shared', {
+  await expect(host.page.getByTestId('consent')).toContainText(
+    `${HELPER_NAME} would like to help you`,
+  );
+}
+
+/** `requestHelp`, then the person says yes; resolves once the session is live. */
+export async function connect(
+  host: LaunchedApp,
+  helper: LaunchedApp,
+  options: { tryWrongCode?: boolean } = {},
+): Promise<void> {
+  await requestHelp(host, helper, options);
+  await host.page.getByRole('button', { name: `Yes, let ${HELPER_NAME} help` }).click();
+  await expect(host.page.getByTestId('status')).toHaveText(`${HELPER_NAME} is helping you`, {
     timeout: 20_000,
   });
   await expect(helper.page.getByTestId('remote-video')).toBeVisible();
+}
+
+/** The host's floating session bar (a window of its own). */
+export async function sessionBar(host: LaunchedApp): Promise<Page> {
+  const find = () => host.application.windows().find((page) => page.url().includes('bar.html'));
+  await expect.poll(() => find() !== undefined).toBe(true);
+  return find() as Page;
 }
 
 export async function numberFrom(page: Page, testId: string, attribute?: string): Promise<number> {

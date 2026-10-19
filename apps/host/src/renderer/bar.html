@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="__CSP__" />
+    <title>Remote Assist</title>
+  </head>
+  <body>
+    <div class="bar" role="toolbar" aria-label="Remote help">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="label" id="label" data-testid="bar-label" aria-live="polite"
+        >Someone is helping you</span
+      >
+      <button type="button" id="pause" data-testid="bar-pause">Pause</button>
+      <button type="button" id="stop" class="stop" data-testid="bar-stop">Stop</button>
+    </div>
+    <script type="module" src="./src/bar.ts"></script>
+  </body>
+</html>

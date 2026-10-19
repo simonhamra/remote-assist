@@ -2,7 +2,7 @@
 
 **Working name.** This is a lightweight remote-support app for helping a family member, starting with Grandma. It should feel like sitting next to her, and she always stays in control.
 
-> **Status:** Phases 0–3 are built for macOS. The host shares its screen with the helper over WebRTC, and the helper can use its mouse and keyboard. A small signaling server matches them with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). There's no consent screen or pause yet (Phase 4), so these are testing builds only. See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
+> **Status:** Phases 0–4 are built for macOS. The host shares its screen and, once the person says yes on a consent screen, the helper can see it and use the mouse and keyboard. A floating bar with Pause and Stop stays on screen throughout. A small signaling server matches the two with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). The helper's name isn't verified until trusted pairing (Phase 5), so these are still testing builds. See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
 
 ## The idea in one picture
 
@@ -67,9 +67,10 @@ The end-to-end tests start the signaling server and open both apps for a few sec
 ### Try it with your real screen (one Mac)
 
 1. In **Terminal**, start the server with `npm run dev:server`. In two more Terminal tabs, start the host with `npm run dev:host` and the helper with `npm run dev:helper`.
-2. In the host window, click **Start sharing my screen**. macOS asks for Screen Recording permission. In development, the request is for **Terminal**, the app that launched Electron, not for Remote Assist. Allow it in System Settings, quit both apps, and start them again. Turn it off again when you're done: while it's on, anything started from Terminal can record the screen.
-3. The host shows an 8-digit number. Type it into the helper and click **Connect**.
-4. In the helper, click **Latency probe**. A small black-and-white strip appears at the bottom-left of your main display. The helper reads it back from the video and shows glass-to-glass latency in the stats overlay (⌘⇧S toggles the overlay).
+2. In the host window, click **Get help from someone**. It shows an 8-digit number. In the helper, enter your name and that number, then click **Connect**.
+3. The host asks "*Your name* would like to help you". Click **Yes, let … help**. Only now does screen capture start, so this is when macOS asks for Screen Recording permission. In development the request is for **Terminal**, the app that launched Electron, not for Remote Assist. Allow it in System Settings, quit both apps, start them again and repeat. Turn it off again when you're done: while it's on, anything started from Terminal can record the screen.
+4. While the session runs, a floating bar at the top of the screen says who is helping, with **Pause** and **Stop**, and a red frame marks the shared screen. **Pause** hides the screen from the helper and switches off control; **Continue** brings them back. Locking the screen or putting the Mac to sleep ends the session. The host's start screen lists recent requests, including the ones you refused.
+5. In the helper, click **Latency probe**. A small black-and-white strip appears at the bottom-left of your main display. The helper reads it back from the video and shows glass-to-glass latency in the stats overlay (⌘⇧S toggles the overlay).
 
 On one Mac, mouse and keyboard control switches itself off: the helper would only be controlling its own screen. Try control between two Macs instead (below).
 

@@ -68,6 +68,10 @@ export const peerMessage = z.discriminatedUnion('t', [
     available: z.boolean(),
     reason: z.enum(['permission', 'unsupported', 'same-computer']).optional(),
   }),
+  /** Host → helper: paused (no picture, no control) or running again. Only the host decides. */
+  z.object({ t: z.literal('paused'), paused: z.boolean() }),
+  /** Host → helper: nothing has happened for a while; the session ends unless the helper acts. */
+  z.object({ t: z.literal('idle'), secondsLeft: z.number().int().min(0).max(3_600) }),
 ]);
 export type PeerMessage = z.infer<typeof peerMessage>;
 
@@ -85,8 +89,12 @@ export function parseInputEvent(value: unknown): InputEvent | null {
   return result.success ? result.data : null;
 }
 
+const INPUT_TYPES: ReadonlySet<string> = new Set(
+  inputOptions.map((option) => option.shape.t.value),
+);
+
 export function isInputEvent(message: PeerMessage): message is InputEvent {
-  return message.t !== 'end' && message.t !== 'control' && message.t !== 'hello';
+  return INPUT_TYPES.has(message.t);
 }
 
 /** A fraction of the display (0–1) as a pointer coordinate, clamped. */

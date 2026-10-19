@@ -71,15 +71,26 @@ The phases are ordered so that **the riskiest unknowns (latency, injection, perm
 
 ## Phase 4: Consent and session safety
 
-- [ ] Host session state machine (`idle → asking → connecting → active ⇄ paused`) as a tested pure module
-- [ ] Consent window (large type, helper photo, 60 s expiry, "No" by default on timeout)
-- [ ] Session bar (always on top, all Spaces/desktops, over full-screen apps) and border overlay
-- [ ] Pause (`replaceTrack` with a "Paused" frame, all input dropped) and Stop (from either side)
-- [ ] Auto-end on screen lock, sleep or user switch (`powerMonitor`), 15 min idle, and the 3 h cap
-- [ ] Input gate drops events targeting the host app's own windows, and settings are locked during a session
-- [ ] Session history (host UI + server metadata)
+- [x] Session states `waiting → asking → connecting → live ⇄ paused → ended`, with the timing rules (60 s to answer, idle warning at 14 min and end at 15, 3-hour cap, idle clock stopped while paused) in a separately tested module
+- [x] **Nothing is captured before consent:** the screen capture starts inside the "Yes" click. The consent card shows the helper's name and initial in large type, says what they'll be able to do, counts down 60 seconds, and comes to the front. Silence counts as no. The helper is told "They said no" or "They didn't answer in time".
+- [x] Session bar (always on top, every desktop, over full-screen apps, can't be closed by accident, doesn't steal focus) and a red border around the shared screen, which lets clicks through and is left out of the capture
+- [x] Pause swaps the picture for a "Paused" card, switches control off in the main process, stops the idle clock and tells the helper. Only the person at the computer can continue. Stop works from either side.
+- [x] Auto-end on screen lock, sleep and user switch (`powerMonitor`), after 15 minutes without activity (the helper is warned a minute before), and at 3 hours
+- [x] The input gate already drops events aimed at the host app's own windows; that now includes the session bar. (There are no settings screens yet to lock.)
+- [x] Session history on the host: every request, accepted or refused, kept 90 days on that computer only and shown on the start screen. Server-side session records come with pairing (Phase 5), when the server knows which devices are involved.
+- The helper's name is self-declared until Phase 5 pins device identities. The consent card says: "Only say yes if you are talking to … right now and you asked for help."
 
 **Exit:** a scripted "malicious helper" test (keeps sending input after Pause, clicks the consent and bar areas, floods events) produces **zero** injected events.
+
+**Results:** the end-to-end tests check that:
+- while the question is open the helper has no picture, and "No" tells the helper and appears in the history;
+- an unanswered question closes after its timeout;
+- while paused, raw clicks, keys, text and pointer moves sent straight down the data channels by a modified helper produce zero injected events;
+- after Continue, clicks aimed at the session bar are dropped while others go through;
+- Stop on the bar ends the session for both sides;
+- a locked screen ends the session at once.
+
+Before consent there is no connection at all, so the consent card can't be reached. Floods are capped by the rate limit (unit-tested).
 
 ## Phase 5: Pairing and trusted devices
 

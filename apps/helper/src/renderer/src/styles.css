@@ -276,3 +276,48 @@ textarea {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+.paused-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  background: rgb(17 20 24 / 88%);
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.idle-banner {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  max-width: 420px;
+  padding: 10px 14px;
+  border: 1px solid #f0b65c;
+  border-radius: 10px;
+  background: #3a2c12;
+  color: #ffd99a;
+  font-size: 0.9rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.field input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1014;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.05rem;
+}

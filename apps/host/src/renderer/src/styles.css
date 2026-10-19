@@ -261,3 +261,80 @@ textarea {
   margin: 0;
   font-variant-numeric: tabular-nums;
 }
+
+/* Consent question */
+.consent {
+  align-items: stretch;
+  border: 3px solid var(--accent);
+  text-align: center;
+}
+
+.consent h2 {
+  justify-content: center;
+  font-size: 1.6rem;
+}
+
+.consent p {
+  margin: 0;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: 2.4rem;
+  font-weight: 700;
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+}
+
+.button-row button {
+  flex: 1;
+}
+
+.card.paused {
+  border-color: #b9b2a6;
+  background: #f2efe9;
+}
+
+.card.paused .live-status::before {
+  background: #9aa3ae;
+}
+
+/* Recent requests */
+.history h2 {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.history ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.95rem;
+}
+
+.history-when {
+  color: var(--muted);
+}

@@ -29,7 +29,7 @@ export function Viewer({ session, state, pc, fakeScreen }: ViewerProps) {
   );
   const latency = useLatency(video, probeRect);
   const canControl = state.control?.available === true;
-  const controlling = canControl && controlOn && !state.reconnecting;
+  const controlling = canControl && controlOn && !state.reconnecting && !state.paused;
   useRemoteInput(video, session, controlling);
 
   useEffect(() => {
@@ -75,9 +75,11 @@ export function Viewer({ session, state, pc, fakeScreen }: ViewerProps) {
         <span className="live" data-testid="viewer-status">
           {state.reconnecting
             ? 'Reconnecting…'
-            : controlling
-              ? 'Controlling their screen'
-              : 'Viewing their screen'}
+            : state.paused
+              ? 'Paused by them'
+              : controlling
+                ? 'Controlling their screen'
+                : 'Viewing their screen'}
         </span>
         <ControlNote control={state.control} />
         <span className="spacer" />
@@ -121,8 +123,33 @@ export function Viewer({ session, state, pc, fakeScreen }: ViewerProps) {
       </header>
       <div className={controlling ? 'stage controlling' : 'stage'}>
         <video ref={video} autoPlay muted playsInline data-testid="remote-video" />
+        {state.paused && (
+          <div className="paused-overlay" role="status" data-testid="paused-overlay">
+            <strong>They paused the session.</strong>
+            <span>Their screen is hidden and you can't control it until they continue.</span>
+          </div>
+        )}
+        {state.idleEndsAt !== null && !state.paused && <IdleBanner endsAt={state.idleEndsAt} />}
         {showStats && <StatsOverlay pc={pc} latency={latency} probeOn={probeRect !== null} />}
       </div>
+    </div>
+  );
+}
+
+/** The session ends soon for lack of activity; any mouse or key input keeps it going. */
+function IdleBanner({ endsAt }: { endsAt: number }) {
+  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setSecondsLeft(Math.max(0, Math.ceil((endsAt - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [endsAt]);
+  if (secondsLeft === null) return null;
+  return (
+    <div className="idle-banner" role="status" data-testid="idle-banner">
+      Nothing has happened for a while: the session ends in {secondsLeft} seconds. Move the mouse
+      over their screen to keep it going.
     </div>
   );
 }

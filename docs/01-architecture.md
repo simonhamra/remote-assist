@@ -116,14 +116,17 @@ You (helper)                      Server                     Grandma (host)
 ### Session state machine (host is authoritative)
 
 ```
- idle ──request(valid sig)──► asking ──Yes──► connecting ──ICE ok──► active ⇄ paused
-   ▲                            │ No/60 s                      │fail      │      │
-   └────────────────────────────┴──────────────────────────────┴──────────┴──────┘
-                     Stop · lock · sleep · idle timeout · disconnect → idle
+ waiting ──helper joins + intro──► asking ──Yes──► connecting ──ICE ok──► live ⇄ paused
+ (code)                             │ No / 60 s        │ fail              │       │
+                                    ▼                  ▼                   ▼       ▼
+                                  ended ◄── Stop · lock · sleep · 15 min idle · 3 h · helper leaves
 ```
 
-- **paused:** capture sends a static "Paused" frame through `replaceTrack`, and the input gate drops everything. Only Grandma can resume.
-- Any transition back to **idle** stops capture, closes the peer connection, releases held keys, hides the bar and writes a session-history entry.
+(As built in Phase 4. Until Phase 5 the request comes from someone holding the session code, not yet from a signed request by a pinned device.)
+
+- **asking:** nothing is captured yet. The screen capture starts inside the "Yes" click.
+- **paused:** a static "Paused" card replaces the screen through `replaceTrack`, the input gate is switched off in the main process, and the idle clock stops. Only Grandma can continue.
+- Every way into **ended** stops capture, closes the peer connection, releases held keys, removes the bar and border, and writes a session-history entry if someone had asked.
 
 ## Wire protocol (data channels)
 
@@ -150,8 +153,12 @@ There are two channels on one RTCPeerConnection:
 
 // host → helper
 { t: "control", available: boolean, reason?: "permission"|"unsupported"|"same-computer" }
+{ t: "paused",  paused: boolean }                         // only the host decides
+{ t: "idle",    secondsLeft: number }                     // warning before an idle session ends
 { t: "end" }
 ```
+
+Before the connection exists, two more messages travel through the signaling server: the helper's `{ kind: "intro", name }` (shown on the consent card) and the host's `{ kind: "declined", reason: "no" | "timeout" }`. Names are limited to 40 characters with no control or invisible formatting characters, so a name can't be made to display misleadingly.
 
 Clicks and scrolls carry their own position, so they land where the helper pointed even if a pointer move on the unreliable channel was lost.
 

@@ -40,6 +40,8 @@ describe('peer messages', () => {
       { t: 'end' },
       { t: 'hello', machine: '0123456789abcdef' },
       { t: 'control', available: false, reason: 'same-computer' },
+      { t: 'paused', paused: true },
+      { t: 'idle', secondsLeft: 60 },
     ];
     for (const message of messages) {
       expect(parsePeerMessage(JSON.stringify(message))).toEqual(message);
@@ -66,6 +68,8 @@ describe('peer messages', () => {
     expect(click && isInputEvent(click)).toBe(true);
     expect(end && isInputEvent(end)).toBe(false);
     expect(hello && isInputEvent(hello)).toBe(false);
+    const paused = parsePeerMessage(JSON.stringify({ t: 'paused', paused: true }));
+    expect(paused && isInputEvent(paused)).toBe(false);
     expect(parseInputEvent({ t: 'end' })).toBeNull();
   });
 });

@@ -23,9 +23,9 @@
 | **Revocation** | Grandma: *People who can help me → Remove*. You: remove from the helper app. Either action deletes the pinned key on that device and the relationship on the server. |
 | **TURN credentials** | Time-limited HMAC credentials (coturn `use-auth-secret`) issued per session, expiring with the session cap |
 
-### Interim state after Phase 3
+### Interim state after Phase 4
 
-Until consent (Phase 4) and pairing (Phase 5) land, **the 8-digit code is the only protection**. Anyone who types a valid code within its 10 minutes sees the screen and, once Accessibility is allowed, **can use the mouse and keyboard**. Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Still, use builds from this stage only for testing, not with Grandma.
+Consent, the session bar, Pause and Stop, auto-end and the history are in place. **Nothing is shared until the person says yes**, and every request is recorded on their computer. What's still missing is identity: until pairing (Phase 5), a helper's name is whatever they typed, and anyone who gets a valid code can make the consent question appear. The consent card warns: "Only say yes if you are talking to … right now and you asked for help." Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Use builds from this stage with Grandma only once Phase 5 has replaced self-declared names with pinned devices.
 
 Already in place on the input side:
 - the input gate runs in the host's main process, and the helper can't bypass it;
