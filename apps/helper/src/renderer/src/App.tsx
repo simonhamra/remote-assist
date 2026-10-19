@@ -1,28 +1,13 @@
-import { displayName, normalizeSessionCode } from '@remote-assist/protocol';
+import type { PeopleState } from '@remote-assist/desktop/channels';
+import { normalizeSessionCode } from '@remote-assist/protocol';
 import { useEffect, useState, useSyncExternalStore, type FormEvent } from 'react';
 import type { AppConfig } from '../../shared/api';
-import { HelperSession, type HelperState } from './helperSession';
+import { HelperSession, type HelperSessionOptions, type HelperState } from './helperSession';
+import { Approvals, NameForm, PairingFlow, PeopleList } from './People';
 import { Viewer } from './Viewer';
 
 const noSubscription = () => () => {};
 const noState = () => null;
-const NAME_KEY = 'helperName';
-
-function savedName(): string {
-  try {
-    return localStorage.getItem(NAME_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function saveName(name: string): void {
-  try {
-    localStorage.setItem(NAME_KEY, name);
-  } catch {
-    // Not remembered next time; nothing else depends on it.
-  }
-}
 
 function useSessionState(session: HelperSession | null): HelperState | null {
   return useSyncExternalStore(
@@ -31,10 +16,23 @@ function useSessionState(session: HelperSession | null): HelperState | null {
   );
 }
 
+/** The people this helper is paired with, kept up to date by the main process. */
+function usePeople(): PeopleState | null {
+  const [people, setPeople] = useState<PeopleState | null>(null);
+  useEffect(() => {
+    const stop = window.helperApi.onPeople(setPeople);
+    void window.helperApi.getPeople().then(setPeople);
+    return stop;
+  }, []);
+  return people;
+}
+
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [session, setSession] = useState<HelperSession | null>(null);
+  const [pairingOpen, setPairingOpen] = useState(false);
   const state = useSessionState(session);
+  const people = usePeople();
 
   useEffect(() => {
     void window.helperApi.getConfig().then(setConfig);
@@ -47,23 +45,38 @@ export function App() {
     }
   }
 
+  if (!config || !people) return null;
+  const options: HelperSessionOptions = {
+    forceRelay: config.forceRelay,
+    machine: config.machine,
+    name: people.name,
+  };
   const connecting =
     state?.name === 'contacting' || state?.name === 'waiting' || state?.name === 'connecting';
   const endedAfterLive = state?.name === 'ended' && state.wasLive;
-  // A failed attempt goes back to the code form, with the reason.
+  // A failed attempt goes back to the start screen, with the reason.
   const failure = state?.name === 'ended' && !state.wasLive ? state.message : null;
+  const pairing = pairingOpen || people.pairing.step !== 'idle';
 
   return (
     <main className="panel">
       <header>
         <h1>Help someone</h1>
-        <p className="lead">
-          Ask them to press “Get help from someone” in Remote Assist and read you the number.
-        </p>
-        {config?.fakeScreen && <p className="badge">Test mode: the host shares a fake screen</p>}
+        <p className="lead">The people you pair with can let you see and use their screen.</p>
+        {config.fakeScreen && <p className="badge">Test mode: the host shares a fake screen</p>}
       </header>
 
-      {connecting && session && (
+      {people.connection !== 'online' && (
+        <p className="warning" role="status" data-testid="connection">
+          {people.connection === 'connecting'
+            ? 'Connecting…'
+            : 'Not connected to the Remote Assist server.'}
+        </p>
+      )}
+
+      {!people.named ? (
+        <NameForm initial="" />
+      ) : connecting && session ? (
         <section className="card">
           <p className="status" data-testid="status">
             {state?.name === 'waiting'
@@ -74,9 +87,7 @@ export function App() {
             Cancel
           </button>
         </section>
-      )}
-
-      {endedAfterLive && (
+      ) : endedAfterLive ? (
         <section className="card">
           <p className="status" data-testid="status">
             {state.message}
@@ -85,72 +96,65 @@ export function App() {
             Start over
           </button>
         </section>
-      )}
-
-      {!connecting && !endedAfterLive && config && (
-        <CodeForm
-          error={failure}
-          onJoin={(code, name) => setSession(HelperSession.join(code, { ...config, name }))}
-        />
+      ) : pairing ? (
+        <PairingFlow people={people} onClose={() => setPairingOpen(false)} />
+      ) : (
+        <>
+          {failure && (
+            <p role="alert" className="error">
+              {failure}
+            </p>
+          )}
+          <Approvals people={people} />
+          <section className="card">
+            <h2>People you help</h2>
+            <PeopleList
+              people={people}
+              onHelp={(peer) => setSession(HelperSession.request(peer.id, options))}
+            />
+            <button type="button" className="secondary" onClick={() => setPairingOpen(true)}>
+              Pair with someone
+            </button>
+          </section>
+          {config.allowCodeSessions && (
+            <CodeForm onJoin={(code) => setSession(HelperSession.join(code, options))} />
+          )}
+        </>
       )}
     </main>
   );
 }
 
-function CodeForm({
-  error,
-  onJoin,
-}: {
-  error: string | null;
-  onJoin(code: string, name: string): void;
-}) {
+/** One-time code sessions, for development and tests (normal use goes through pairing). */
+function CodeForm({ onJoin }: { onJoin(code: string): void }) {
   const [input, setInput] = useState('');
-  const [name, setName] = useState(savedName);
   const [problem, setProblem] = useState<string | null>(null);
-  const shown = problem ?? error;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const code = normalizeSessionCode(input);
-    const checkedName = displayName.safeParse(name);
-    if (!checkedName.success) {
-      setProblem('Enter your name (up to 40 characters): they will see it before saying yes.');
-      return;
-    }
     if (code.length !== 8) {
       setProblem('The code has 8 digits.');
       return;
     }
     setProblem(null);
-    saveName(checkedName.data);
-    onJoin(code, checkedName.data);
+    onJoin(code);
   };
 
   return (
     <form className="card" onSubmit={submit}>
-      <h2>Enter the number they read to you</h2>
-      {shown && (
+      <h2>Help with a one-time code</h2>
+      {problem && (
         <p role="alert" className="error">
-          {shown}
+          {problem}
         </p>
       )}
-      <label className="field">
-        Your name, as they will see it
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          autoComplete="name"
-          maxLength={40}
-          data-testid="name-input"
-        />
-      </label>
       <input
         className="code-input"
         value={input}
         onChange={(event) => setInput(event.target.value)}
         inputMode="numeric"
         autoComplete="off"
-        autoFocus
         placeholder="1234 5678"
         aria-label="Session code"
         data-testid="code-input"

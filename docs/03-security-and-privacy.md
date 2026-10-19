@@ -14,18 +14,19 @@
 | Element | Design |
 |---|---|
 | **Device identity** | An Ed25519 keypair is generated on first launch. The private key is encrypted with Electron `safeStorage` (macOS Keychain / Windows DPAPI) and never leaves the device. |
-| **Server login** | No accounts or passwords. On WebSocket connect the server sends a nonce, the device signs `nonce ‖ server-origin ‖ timestamp`, and the server checks the signature against the registered public key. |
-| **Pairing (trusted devices)** | An 8-digit code shown on the host, valid for **10 min**, **single use**, **5 attempts** maximum, stored as a hash, and rate-limited per IP. Both screens then show **3 confirmation words** derived from `hash(hostKey ‖ helperKey ‖ code)`, and both people confirm they match. Each device then **pins** the other's key. |
-| **Session requests** | Signed by the helper's key and including `sessionId`, `nonce`, `timestamp (±60 s)` and the recipient device ID. The host rejects anything unsigned, from an unpinned key, stale, or replayed. |
-| **Media authentication** | The SDP offer and answer, which contain the DTLS certificate fingerprint, are signed by the device keys. Chromium refuses DTLS peers whose certificate does not match the fingerprint, so the encrypted stream is bound to the paired devices. |
-| **Helper-side gate** | Touch ID or the OS password is required to start a session. A stolen, unlocked laptop cannot simply click "Help". |
-| **Expiring session codes** | An optional **ad-hoc mode** for one-off help without pairing: an 8-digit code, valid 10 minutes, for a single session, with nothing remembered afterwards. **Off by default** on Grandma's machine, and only a paired helper can turn it on. *Phase 2 builds this code flow first, as the only way to connect until pairing exists (see below).* |
-| **Revocation** | Grandma: *People who can help me → Remove*. You: remove from the helper app. Either action deletes the pinned key on that device and the relationship on the server. |
+| **Server login** | No accounts or passwords. A device's ID is its public key. On connect the server sends a random challenge, the device signs it, and the server checks the signature against the claimed key. A newer connection of the same device replaces the old one. |
+| **Pairing (trusted devices)** | An 8-digit code shown on the host, valid for **10 min**, **single use**, kept only in memory, with redemption rate-limited per IP. Both screens then show **3 confirmation words** derived from `hash(hostKey ‖ helperKey ‖ code)`, and both people confirm they match. Each device then **pins** the other's key, and the server records the pair. A substituted key makes the words differ (tested). |
+| **Session requests** | Signed by the helper's key, covering sender, recipient, a random nonce and a timestamp (±60 s). The server checks the signature and the pairing before forwarding. The host checks again in its main process, against its own pinned keys, and rejects anything unsigned, from an unpinned key, addressed to someone else, stale or replayed (tested). |
+| **Media authentication** | In paired sessions the SDP offer and answer, which contain the DTLS certificate fingerprint, are signed by the sender's device key over the session's nonce. The receiver checks the signature before WebRTC sees them; a mismatch ends the session. Chromium refuses DTLS peers whose certificate does not match the fingerprint, so the encrypted stream is bound to the paired devices (an altered offer is tested). |
+| **Helper-side gate** | Touch ID before a request is sent, on Macs that have it. A stolen, unlocked laptop cannot simply click "Help". (Macs without Touch ID currently skip this step; an OS-password fallback is a later improvement.) |
+| **Expiring session codes** | One-off help without pairing: an 8-digit code, valid 10 minutes, for a single session. **Off** unless the app is started with `RA_ALLOW_CODE_SESSIONS=1` (development and tests); the consent card marks such requests as coming from a one-time code. Letting a paired helper switch it on remotely is a later option. |
+| **Revocation** | Grandma: *People who can help you → Remove*. You: remove from the helper app. Either action deletes the pinned key on that device at once, and the pairing on the server, which tells the other device. A removal made while offline reaches the server at the next sign-in. |
+| **Anti-scam lock** | Once a computer has a helper, pairing someone new also needs an existing helper's approval, and existing helpers are shown every attempt. |
 | **TURN credentials** | Time-limited HMAC credentials (coturn `use-auth-secret`) issued per session, expiring with the session cap |
 
-### Interim state after Phase 4
+### State after Phase 5
 
-Consent, the session bar, Pause and Stop, auto-end and the history are in place. **Nothing is shared until the person says yes**, and every request is recorded on their computer. What's still missing is identity: until pairing (Phase 5), a helper's name is whatever they typed, and anyone who gets a valid code can make the consent question appear. The consent card warns: "Only say yes if you are talking to … right now and you asked for help." Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Use builds from this stage with Grandma only once Phase 5 has replaced self-declared names with pinned devices.
+The security model above is in place. **Only devices paired with her computer can ask**, a request shows the name pinned at pairing (marked "✓ Paired with this computer"), nothing is shared until she says yes, and every request is recorded on her computer. A compromised server can refuse service, but can't impersonate either side, swap itself into the connection, or replay a request: the end-to-end tests run all three attacks through a tampering proxy. What remains before handing it to Grandma is installation (Phases 6–7): signed, notarized apps installed with a guided setup.
 
 Already in place on the input side:
 - the input gate runs in the host's main process, and the helper can't bypass it;
@@ -114,7 +115,8 @@ App copy should reinforce this. The pairing screen says in large text: *"Only do
 |---|---|---|
 | Screen content, keystrokes | **Nowhere.** They exist only in flight between the two devices. | None |
 | Private keys | Each device's OS keystore | Until revoked or the app is uninstalled |
-| Public keys, display names, photo, pairings | Server SQLite | Until revoked |
-| Session metadata (who, start, end, end reason) | Server + host history | 90 days |
+| Pairings (two public keys and a date) | Server SQLite | Until removed |
+| Device names, pinned keys | Each device (names are shown on the other device at pairing) | Until removed |
+| Session history (who asked, when, how it ended) | The host computer only | 90 days |
 | Server access logs (IP, timestamp) | VPS | 7-day rotation |
 | Crash reports | Off by default. If enabled, local stack traces only, never screenshots. | 30 days |

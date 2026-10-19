@@ -5,11 +5,12 @@
   "description": "Signaling server: session codes, message relay and TURN credentials.",
   "type": "module",
   "scripts": {
-    "start": "node src/index.ts",
-    "dev": "node --watch src/index.ts",
+    "start": "node --disable-warning=ExperimentalWarning src/index.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --watch src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@remote-assist/crypto": "*",
     "@remote-assist/protocol": "*",
     "ws": "^8.22.0"
   },

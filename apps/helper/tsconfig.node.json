@@ -13,7 +13,8 @@
     "../../tooling/**/*.ts",
     "../../packages/desktop/src/**/*.ts",
     "../../packages/protocol/src/**/*.ts",
-    "../../packages/native-input/src/**/*.ts"
+    "../../packages/native-input/src/**/*.ts",
+    "../../packages/crypto/src/**/*.ts"
   ],
   "exclude": ["../../packages/*/src/**/*.test.ts"]
 }

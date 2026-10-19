@@ -2,7 +2,7 @@
 
 **Working name.** This is a lightweight remote-support app for helping a family member, starting with Grandma. It should feel like sitting next to her, and she always stays in control.
 
-> **Status:** Phases 0–4 are built for macOS. The host shares its screen and, once the person says yes on a consent screen, the helper can see it and use the mouse and keyboard. A floating bar with Pause and Stop stays on screen throughout. A small signaling server matches the two with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). The helper's name isn't verified until trusted pairing (Phase 5), so these are still testing builds. See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
+> **Status:** Phases 0–5 are built for macOS. You pair with her computer once, comparing three words. After that, you click **Help Grandma** and she sees a verified request with your name. Only if she says yes can you see her screen and use the mouse and keyboard. A floating bar with Pause and Stop stays on screen throughout. A small signaling server (with a TURN relay) connects the two, but it can't impersonate either side. Everything is tested locally, including against a tampering server; the server isn't deployed yet ([infra/README.md](infra/README.md)). Still to come before handing it to her: guided setup (Phase 6) and signed installers (Phase 7). See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
 
 ## The idea in one picture
 
@@ -27,9 +27,13 @@
 
 ## How a session feels
 
+Once, together: she presses **Pair with my helper** and reads you a number; you type it; you both check that the same three words appear on both screens.
+
+Then, every time:
+
 | You (helper) | Grandma (host) |
 |---|---|
-| Click **Help Grandma** (Touch ID) | A big window shows your photo: *"Alex would like to help you. Alex will see your screen and can move your mouse."* |
+| Click **Help Grandma** (Touch ID) | A big window shows *"✓ Paired with this computer. Alex would like to help you. Alex will see your screen and can use your mouse and keyboard."* |
 | | She clicks **Yes, let Alex help** (the only click she needs) |
 | Her screen appears within ~2–5 s, and you can use the mouse and keyboard | A slim bar shows *"Alex is helping you · Pause · Stop"* and a coloured border appears around her screen |
 | | **Pause** freezes your view and blocks your input. **Stop** ends the session, and so does locking or sleeping the computer |
@@ -49,7 +53,7 @@ After a one-time setup, the session itself raises **no OS permission prompts**. 
 - **Both apps:** Electron + TypeScript + React. Chromium supplies screen capture, hardware video encoding and the full WebRTC stack.
 - **Input injection:** a small Swift program (Quartz Event Services) that the host app runs in the background and feeds validated commands. It's macOS only for now; a Windows equivalent can speak the same line-based protocol.
 - **Transport:** WebRTC peer-to-peer, with H.264 video and two data channels for input. Media is encrypted end to end with DTLS-SRTP.
-- **Server:** Node.js + `ws` WebSocket signaling (TypeScript run directly by Node) and coturn for TURN, behind Caddy for automatic TLS. Docker Compose runs it on one small VPS. SQLite arrives once there's something to keep (session history, pairings).
+- **Server:** Node.js + `ws` WebSocket signaling (TypeScript run directly by Node), with pairings stored in Node's built-in SQLite as pairs of public keys, and coturn for TURN, behind Caddy for automatic TLS. Docker Compose runs it on one small VPS.
 - **Identity:** an Ed25519 key per device, created on first launch and stored with the OS keychain. There are no passwords. Trust comes from a one-time pairing with a code and confirmation words.
 
 ## Run it
@@ -67,10 +71,12 @@ The end-to-end tests start the signaling server and open both apps for a few sec
 ### Try it with your real screen (one Mac)
 
 1. In **Terminal**, start the server with `npm run dev:server`. In two more Terminal tabs, start the host with `npm run dev:host` and the helper with `npm run dev:helper`.
-2. In the host window, click **Get help from someone**. It shows an 8-digit number. In the helper, enter your name and that number, then click **Connect**.
-3. The host asks "*Your name* would like to help you". Click **Yes, let … help**. Only now does screen capture start, so this is when macOS asks for Screen Recording permission. In development the request is for **Terminal**, the app that launched Electron, not for Remote Assist. Allow it in System Settings, quit both apps, start them again and repeat. Turn it off again when you're done: while it's on, anything started from Terminal can record the screen.
+2. In the helper, enter your name. In the host window, click **Pair with my helper**: it shows an 8-digit number. In the helper, click **Pair with someone**, type the number, and check that both screens show the same three words. Click **They match** / **Yes, they match** on both.
+3. In the helper, click **Help** next to the computer's name (Touch ID asks first, on Macs that have it). The host asks "*Your name* would like to help you", marked **✓ Paired with this computer**. Click **Yes, let … help**. Only now does screen capture start, so this is when macOS asks for Screen Recording permission. In development the request is for **Terminal**, the app that launched Electron, not for Remote Assist. Allow it in System Settings, quit both apps, start them again and repeat. Turn it off again when you're done: while it's on, anything started from Terminal can record the screen.
 4. While the session runs, a floating bar at the top of the screen says who is helping, with **Pause** and **Stop**, and a red frame marks the shared screen. **Pause** hides the screen from the helper and switches off control; **Continue** brings them back. Locking the screen or putting the Mac to sleep ends the session. The host's start screen lists recent requests, including the ones you refused.
 5. In the helper, click **Latency probe**. A small black-and-white strip appears at the bottom-left of your main display. The helper reads it back from the video and shows glass-to-glass latency in the stats overlay (⌘⇧S toggles the overlay).
+
+One-time code sessions (no pairing) are still there for development and tests: start both apps with `RA_ALLOW_CODE_SESSIONS=1` in front of the command.
 
 On one Mac, mouse and keyboard control switches itself off: the helper would only be controlling its own screen. Try control between two Macs instead (below).
 

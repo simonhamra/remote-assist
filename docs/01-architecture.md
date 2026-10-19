@@ -64,7 +64,7 @@ remote-assist/
 | **WebSocket hub** | Authenticated, persistent connection per device, used for presence and for relaying **signed** messages between paired devices. |
 | **Pairing API** | Issues and redeems short-lived pairing codes. Codes are stored hashed and rate-limited. |
 | **TURN credentials** | Mints time-limited coturn credentials using the coturn REST-API shared secret. |
-| **SQLite** (Phase 4+) | Device public keys, display names, pairing relationships, and session metadata (start, end, reason). **No screen data, no keystrokes.** Until then the server keeps only in-memory rooms. |
+| **SQLite** | Pairings only: which host key is paired with which helper key, and since when. **No names, no IP addresses, no session records, no screen data or keystrokes.** Names stay on the devices, and session history stays on the host. |
 | **coturn** | Relay for networks where peer-to-peer fails, roughly 10–20% of real-world cases. It only ever sees encrypted packets. |
 
 ## Flow 1: one-time pairing (trusted device)
@@ -122,7 +122,7 @@ You (helper)                      Server                     Grandma (host)
                                   ended ◄── Stop · lock · sleep · 15 min idle · 3 h · helper leaves
 ```
 
-(As built in Phase 4. Until Phase 5 the request comes from someone holding the session code, not yet from a signed request by a pinned device.)
+(As built. In normal use the request is a signed request from a helper this computer pinned at pairing, checked in the host's main process before the question appears. One-time code sessions, where someone holding a code introduces themselves, remain for development and tests only.)
 
 - **asking:** nothing is captured yet. The screen capture starts inside the "Yes" click.
 - **paused:** a static "Paused" card replaces the screen through `replaceTrack`, the input gate is switched off in the main process, and the idle clock stops. Only Grandma can continue.

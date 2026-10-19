@@ -26,6 +26,8 @@ services:
     # Reachable only through Caddy, never directly from the internet.
     expose:
       - '8787'
+    volumes:
+      - signaling-data:/data
     environment:
       HOST: 0.0.0.0
       PORT: '8787'
@@ -50,3 +52,5 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+  # Pairings (pairs of device public keys). Back this up: losing it means pairing again.
+  signaling-data:

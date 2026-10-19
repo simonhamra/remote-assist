@@ -67,6 +67,14 @@ RA_SIGNALING_URL=wss://assist.example.com/ws npm run dev:helper
 
 To check that the relay works, add `RA_FORCE_RELAY=1` to **both** commands. The helper's stats overlay should then show **Path: relay**.
 
+## Backups
+
+Pairings live in the `signaling-data` volume (`/data/remote-assist.db`). If it's lost, everyone pairs again: nothing else breaks, and nobody gains access. To back it up:
+
+```bash
+docker compose cp signaling:/data/remote-assist.db ./remote-assist-backup.db
+```
+
 ## Updating
 
 ```bash

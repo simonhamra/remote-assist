@@ -14,11 +14,11 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 | Input transport | **RTCDataChannel** (unreliable for pointer, reliable for the rest) | Same encrypted connection as the video, no extra ports |
 | Input injection | **Swift agent using Quartz Event Services** (`packages/native-input`), run by the host app as a child process that reads JSON lines | `swiftc` comes with Xcode's Command Line Tools, so there's no extra toolchain. It's a separate process, so a crash can't take the app down, and closing its input releases every held key. It also gives direct control of drag events, click counts, modifier flags and layout-aware shortcuts. macOS only; Windows gets its own agent with the same protocol. |
 | Signaling | **Node.js 24 LTS + `ws` + zod**, TypeScript run directly by Node (type stripping) | About 300 lines, easy to audit, no build step. Plain `node:http` is enough for one WebSocket path and a health check, so there's no web framework. |
-| Database | **SQLite**, added with session history and pairing (Phases 4–5) | A single file of public keys and metadata, with trivial backups. Phase 2 keeps nothing, so it has no database. |
+| Database | **SQLite** through Node's built-in `node:sqlite` (Phase 5) | One table of pairings (two public keys and a date). No native module to build, and backing up is copying one file. |
 | NAT traversal | **coturn** (STUN + TURN, TLS on 443) with ephemeral REST-API credentials | Works through hotel and corporate firewalls. Credentials expire. |
 | TLS / proxy | **Caddy** | Automatic HTTPS certificates, one config file |
 | Hosting | One small VPS (~€5/mo, e.g. Hetzner/DigitalOcean) with **Docker Compose** | Signaling, TURN and TLS in one place. Screen-share traffic is about 1–4 Mbps per session. |
-| Crypto | **Ed25519** via Node `crypto` / `@noble/curves`. Keys encrypted at rest with Electron **`safeStorage`** (Keychain / DPAPI). | Audited primitives, and private keys never leave the device |
+| Crypto | **Ed25519** via Node's built-in `crypto`, in the main processes and on the server. Keys encrypted at rest with Electron **`safeStorage`** (Keychain / DPAPI). Pairing words from the BIP-39 English list (`@scure/bip39`, MIT). | Audited primitives, no extra crypto library, and private keys never leave the main process |
 | Packaging | **electron-builder** | DMG/ZIP for macOS, NSIS for Windows, auto-update feed |
 | Updates | **electron-updater**, signed, installed silently on next restart | Grandma never sees an "Update available?" dialog |
 | Code signing | macOS **Developer ID + notarization**. Windows **Authenticode** (Microsoft Trusted Signing or an OV cert). | Required for Gatekeeper/SmartScreen, and on macOS it keeps permission grants across updates |

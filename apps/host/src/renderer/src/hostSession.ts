@@ -1,3 +1,4 @@
+import type { SessionEvent } from '@remote-assist/desktop/channels';
 import {
   decodePointerMove,
   isInputEvent,
@@ -5,7 +6,6 @@ import {
   type IceServer,
   type PeerMessage,
   type SignalData,
-  type SignalingEvent,
 } from '@remote-assist/protocol';
 import {
   candidateInit,
@@ -29,8 +29,11 @@ import {
 export type HostState =
   | { name: 'contacting' }
   | { name: 'waiting'; code: string }
-  /** Someone joined with the code: nothing is shared until the person answers. */
-  | { name: 'asking'; helperName: string; secondsLeft: number }
+  /**
+   * Someone wants to help: nothing is shared until the person answers. `verified`: a helper
+   * this computer paired with (checked by signature), not just someone holding a code.
+   */
+  | { name: 'asking'; helperName: string; verified: boolean; secondsLeft: number }
   | { name: 'connecting'; helperName: string }
   | {
       name: 'live';
@@ -72,6 +75,8 @@ export class HostSession {
   private pausedCard: ScreenSource | null = null;
   private iceServers: IceServer[] | null = null;
   private helperName: string | null = null;
+  /** A paired helper whose signed request the main process verified. */
+  private verifiedPeer: { id: string; name: string } | null = null;
   private askedAt = 0;
   private wasLive = false;
   private pc: RTCPeerConnection | null = null;
@@ -95,7 +100,14 @@ export class HostSession {
     this.stopCommands = window.hostApi.onSessionCommand(this.onCommand);
   }
 
-  /** Asks the server for a code. Nothing is captured yet. */
+  /** A paired helper asked to help (the request is verified): the consent question comes next. */
+  static incoming(peer: { id: string; name: string }, options: HostSessionOptions): HostSession {
+    const session = new HostSession(options);
+    session.verifiedPeer = peer;
+    return session;
+  }
+
+  /** A one-time code session: asks the server for a code. Nothing is captured yet. */
   static start(options: HostSessionOptions): HostSession {
     const session = new HostSession(options);
     window.hostApi.startSession().catch((error: unknown) => session.end(friendlyError(error)));
@@ -193,20 +205,27 @@ export class HostSession {
     this.sendPeer({ t: 'control', ...status });
   }
 
-  private readonly onEvent = (event: SignalingEvent): void => {
+  private readonly onEvent = (event: SessionEvent): void => {
     if (this.state.name === 'ended') return;
     const live = this.state.name === 'live';
     switch (event.t) {
       case 'code':
         this.set({ name: 'waiting', code: event.code });
         break;
+      case 'verified':
+        break;
       case 'paired':
         this.iceServers = event.iceServers;
-        this.introTimer = setTimeout(() => this.ask('Someone'), INTRO_WAIT_MS);
+        // A paired helper is known by the name pinned at pairing; anyone else introduces itself.
+        if (this.verifiedPeer) this.ask(this.verifiedPeer.name, true);
+        else this.introTimer = setTimeout(() => this.ask('Someone', false), INTRO_WAIT_MS);
         break;
       case 'signal':
-        if (event.data.kind === 'intro') this.ask(event.data.name);
+        if (event.data.kind === 'intro') this.ask(event.data.name, false);
         else void this.onSignal(event.data);
+        break;
+      case 'tampered':
+        this.end(event.message, 'error');
         break;
       // Once live, the video connection no longer needs the server.
       case 'peer.left':
@@ -241,14 +260,15 @@ export class HostSession {
   };
 
   /** Shows the consent question. Only the first introduction counts. */
-  private ask(name: string): void {
-    if (this.state.name !== 'waiting' || !this.iceServers) return;
+  private ask(name: string, verified: boolean): void {
+    const ready = this.state.name === 'waiting' || (verified && this.state.name === 'contacting');
+    if (!ready || !this.iceServers) return;
     clearTimeout(this.introTimer);
     this.helperName = name;
     this.askedAt = Date.now();
     const deadline = this.askedAt + this.limits.consentMs;
     const secondsLeft = () => Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    this.set({ name: 'asking', helperName: name, secondsLeft: secondsLeft() });
+    this.set({ name: 'asking', helperName: name, verified, secondsLeft: secondsLeft() });
     this.countdown = setInterval(() => {
       if (this.state.name === 'asking') this.set({ ...this.state, secondsLeft: secondsLeft() });
     }, 1000);

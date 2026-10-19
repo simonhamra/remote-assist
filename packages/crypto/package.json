@@ -1,0 +1,16 @@
+{
+  "name": "@remote-assist/crypto",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Device identity, signatures and pairing confirmation words (Node only).",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@scure/bip39": "^2.4.0"
+  }
+}

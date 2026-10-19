@@ -1,4 +1,5 @@
-import type { InputEvent, SignalData, SignalingEvent } from '@remote-assist/protocol';
+import type { PeopleApi, SessionEvent } from '@remote-assist/desktop/channels';
+import type { InputEvent, SignalData } from '@remote-assist/protocol';
 
 /** The contract between the host's main process and its windows. */
 
@@ -37,6 +38,8 @@ export interface AppConfig {
   fakeScreen: boolean;
   /** RA_FORCE_RELAY=1: only connect through the TURN relay (to test it). */
   forceRelay: boolean;
+  /** RA_ALLOW_CODE_SESSIONS=1: one-time code sessions without pairing (development, tests). */
+  allowCodeSessions: boolean;
   /** RA_TEST_CONSENT_MS: a shorter consent timeout, for tests only. */
   consentMs?: number;
 }
@@ -76,18 +79,18 @@ export interface SessionRecord {
 }
 
 /** Exposed to the main window as `window.hostApi`. */
-export interface HostApi {
+export interface HostApi extends PeopleApi {
   getConfig(): Promise<AppConfig>;
   screenPermission(): Promise<ScreenPermission>;
   openScreenRecordingSettings(): Promise<void>;
   /** CPU used by all of this app's processes, in percent of one core. */
   cpuPercent(): Promise<number>;
-  /** Connects to the server and asks for a session code (arrives as a `code` event). */
+  /** Starts a one-time code session (the code arrives as a `code` event). */
   startSession(): Promise<void>;
   sendSignal(data: SignalData): Promise<void>;
   leaveSession(): Promise<void>;
   /** Returns a function that stops listening. */
-  onSessionEvent(listener: (event: SignalingEvent) => void): () => void;
+  onSessionEvent(listener: (event: SessionEvent) => void): () => void;
   /** Passes one event from the helper to the input gate in the main process. */
   sendInput(event: InputEvent): void;
   /**

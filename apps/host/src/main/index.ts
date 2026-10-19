@@ -1,8 +1,11 @@
 import {
+  ServerBridge,
+  Settings,
+  TrustStore,
   isMainFrame,
+  loadIdentity,
   lockDown,
   machineId,
-  registerSignalingBridge,
   trustedHandler,
   trustedListener,
 } from '@remote-assist/desktop/main';
@@ -13,6 +16,7 @@ import {
   BrowserWindow,
   desktopCapturer,
   powerMonitor,
+  safeStorage,
   screen,
   session,
   shell,
@@ -21,6 +25,7 @@ import {
   type DisplayMediaRequestHandlerHandlerRequest,
   type Streams,
 } from 'electron';
+import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
   Channels,
@@ -33,10 +38,16 @@ import { SessionHistory, isSessionRecord } from './history';
 import { InputController } from './inputController';
 import { SessionChrome } from './sessionChrome';
 
+// Test and development switches. RA_USER_DATA_DIR gives each test instance its own data, and
+// RA_TEST_MOCK_KEYCHAIN keeps tests away from the real macOS Keychain.
+if (process.env.RA_USER_DATA_DIR) app.setPath('userData', process.env.RA_USER_DATA_DIR);
+if (process.env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
+
 const testConsentMs = Number(process.env.RA_TEST_CONSENT_MS);
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
   forceRelay: process.env.RA_FORCE_RELAY === '1',
+  allowCodeSessions: process.env.RA_ALLOW_CODE_SESSIONS === '1',
   ...(testConsentMs > 0 ? { consentMs: testConsentMs } : {}),
 };
 const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
@@ -108,6 +119,46 @@ function controlStatus(helperMachine: unknown): ControlStatus {
 
 function sendCommand(command: SessionCommand): void {
   mainWindow?.webContents.send(Channels.sessionCommand, command);
+}
+
+/** Someone asks to help, or pairing needs an answer: bring the window forward. */
+function attention(): void {
+  const win = mainWindow;
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  app.focus({ steal: true });
+  if (process.platform === 'darwin') app.dock?.bounce('critical');
+}
+
+function startServerBridge(): ServerBridge {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('This computer cannot store the device key securely.');
+  }
+  const data = app.getPath('userData');
+  const bridge = new ServerBridge({
+    url: signalingUrl,
+    role: 'host',
+    identity: loadIdentity(join(data, 'device-key.bin'), {
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (bytes) => safeStorage.decryptString(bytes),
+    }),
+    trust: new TrustStore(join(data, 'trusted-helpers.json')),
+    settings: new Settings(join(data, 'settings.json')),
+    defaultName: process.env.RA_DEVICE_NAME ?? defaultName(),
+    handle,
+    toWindow: (channel, payload) => mainWindow?.webContents.send(channel, payload),
+    allowCodeSessions: config.allowCodeSessions,
+    onAttention: attention,
+  });
+  bridge.start();
+  return bridge;
+}
+
+/** The macOS account name, capitalized: what a helper sees before naming this computer. */
+function defaultName(): string {
+  const name = userInfo().username || 'My computer';
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 function createWindow(): BrowserWindow {
@@ -190,8 +241,6 @@ function registerIpc(): void {
   handle(Channels.cpu, () =>
     app.getAppMetrics().reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0),
   );
-  registerSignalingBridge({ url: signalingUrl, role: 'host', handle, getWindow: () => mainWindow });
-
   listen(Channels.input, (event) => {
     const parsed = parseInputEvent(event);
     if (parsed) input.handle(parsed);
@@ -248,9 +297,12 @@ function registerIpc(): void {
   handle(Channels.history, () => history.list());
 }
 
+let bridge: ServerBridge | null = null;
+
 void app.whenReady().then(() => {
   configureSession();
   registerIpc();
+  bridge = startServerBridge();
   mainWindow = createWindow();
   // Whatever happens to the window, the helper loses the mouse and keyboard.
   mainWindow.webContents.on('render-process-gone', () => {
@@ -272,7 +324,10 @@ void app.whenReady().then(() => {
 });
 
 // Closing the agent's input makes it release everything before it exits.
-app.on('will-quit', () => agent.stop());
+app.on('will-quit', () => {
+  agent.stop();
+  bridge?.stop();
+});
 
 // Closing the window ends any sharing, so there is nothing left to keep running.
 app.on('window-all-closed', () => app.quit());

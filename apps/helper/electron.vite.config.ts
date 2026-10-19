@@ -7,7 +7,12 @@ import { contentSecurityPolicy } from '../../tooling/csp';
 // (Sandboxed preload scripts cannot load modules at all.)
 const bundleWorkspace = {
   externalizeDeps: {
-    exclude: ['@remote-assist/desktop', '@remote-assist/native-input', '@remote-assist/protocol'],
+    exclude: [
+      '@remote-assist/crypto',
+      '@remote-assist/desktop',
+      '@remote-assist/native-input',
+      '@remote-assist/protocol',
+    ],
   },
 };
 

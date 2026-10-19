@@ -1,3 +1,4 @@
+import type { SessionEvent } from '@remote-assist/desktop/channels';
 import {
   encodePointerMove,
   parsePeerMessage,
@@ -5,7 +6,6 @@ import {
   type InputEvent,
   type PeerMessage,
   type SignalData,
-  type SignalingEvent,
 } from '@remote-assist/protocol';
 import {
   candidateInit,
@@ -66,6 +66,16 @@ export class HelperSession {
     this.stopListening = window.helperApi.onSessionEvent(this.onEvent);
   }
 
+  /** Asks a paired computer: the person there is asked whether to let you help. */
+  static request(peerId: string, options: HelperSessionOptions): HelperSession {
+    const session = new HelperSession(options);
+    window.helperApi
+      .requestSession(peerId)
+      .catch((error: unknown) => session.end(friendlyError(error)));
+    return session;
+  }
+
+  /** Joins a one-time code session. */
   static join(code: string, options: HelperSessionOptions): HelperSession {
     const session = new HelperSession(options);
     window.helperApi.joinSession(code).catch((error: unknown) => session.end(friendlyError(error)));
@@ -140,7 +150,7 @@ export class HelperSession {
     }
   }
 
-  private readonly onEvent = (event: SignalingEvent): void => {
+  private readonly onEvent = (event: SessionEvent): void => {
     if (this.state.name === 'ended') return;
     switch (event.t) {
       case 'paired':
@@ -169,7 +179,11 @@ export class HelperSession {
       case 'closed':
         if (!this.wasLive) this.end('Lost contact with the Remote Assist server.');
         break;
+      case 'tampered':
+        this.end(event.message);
+        break;
       case 'code':
+      case 'verified':
         break;
     }
   };

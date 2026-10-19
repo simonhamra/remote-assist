@@ -7,11 +7,25 @@ import {
   parseServerMessage,
 } from './signaling.ts';
 
+const DEVICE = 'A'.repeat(43);
+const SIG = 'B'.repeat(86);
+
 describe('parseClientMessage', () => {
   it('accepts well-formed messages', () => {
-    expect(parseClientMessage(JSON.stringify({ t: 'host.open', v: PROTOCOL_VERSION }))).toEqual({
-      t: 'host.open',
+    const auth = {
+      t: 'auth',
       v: PROTOCOL_VERSION,
+      device: DEVICE,
+      role: 'helper',
+      name: 'Alex',
+      sig: SIG,
+    };
+    expect(parseClientMessage(JSON.stringify(auth))).toEqual(auth);
+    expect(parseClientMessage(JSON.stringify({ t: 'host.open' }))).toEqual({ t: 'host.open' });
+    const request = { from: DEVICE, to: DEVICE, nonce: 'C'.repeat(22), ts: 1, sig: SIG };
+    expect(parseClientMessage(JSON.stringify({ t: 'session.request', request }))).toEqual({
+      t: 'session.request',
+      request,
     });
     const candidate = { candidate: 'candidate:1 1 udp 1 192.0.2.1 5000 typ host', sdpMid: '0' };
     expect(
@@ -19,11 +33,13 @@ describe('parseClientMessage', () => {
     ).toEqual({ t: 'signal', data: { kind: 'candidate', candidate } });
   });
 
-  it('rejects malformed JSON, unknown types and bad codes', () => {
+  it('rejects malformed JSON, unknown types, bad codes, keys and versions', () => {
     expect(parseClientMessage('{nope')).toBeNull();
     expect(parseClientMessage(JSON.stringify({ t: 'admin' }))).toBeNull();
-    expect(parseClientMessage(JSON.stringify({ t: 'helper.join', v: 1, code: '1234' }))).toBeNull();
-    expect(parseClientMessage(JSON.stringify({ t: 'host.open', v: 99 }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ t: 'helper.join', code: '1234' }))).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ t: 'pair.remove', peer: 'short' }))).toBeNull();
+    const oldAuth = { t: 'auth', v: 1, device: DEVICE, role: 'host', name: 'G', sig: SIG };
+    expect(parseClientMessage(JSON.stringify(oldAuth))).toBeNull();
   });
 
   it('caps the size of relayed SDP', () => {

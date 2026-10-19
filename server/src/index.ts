@@ -10,6 +10,7 @@ jsonLog('listening', {
   port: address.port,
   stun: config.stunUrls.length > 0,
   turn: config.turn !== null,
+  persistent: config.databasePath !== ':memory:',
 });
 
 const shutdown = (): void => {

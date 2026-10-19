@@ -1,3 +1,10 @@
+import {
+  createIdentity,
+  createSessionRequest,
+  signText,
+  signedText,
+  type Identity,
+} from '@remote-assist/crypto';
 import { PROTOCOL_VERSION, SignalingClient, type SignalingEvent } from '@remote-assist/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -21,13 +28,25 @@ beforeEach(async () => {
 
 afterEach(() => server.close());
 
-/** The same client the apps use, over Node's built-in WebSocket. */
-function client() {
+/** The same client the apps use, over Node's built-in WebSocket, signed in as `identity`. */
+async function client(identity: Identity, role: 'host' | 'helper', name: string) {
   const events: SignalingEvent[] = [];
-  const signaling = new SignalingClient(`ws://${base}/ws`, (event) => events.push(event));
+  const signaling = new SignalingClient({
+    url: `ws://${base}/ws`,
+    onEvent: (event) => events.push(event),
+    authenticate: (nonce) => ({
+      t: 'auth',
+      v: PROTOCOL_VERSION,
+      device: identity.id,
+      role,
+      name,
+      sig: signText(identity, signedText.auth(nonce)),
+    }),
+  });
+  await signaling.connect();
   const waitFor = <T extends SignalingEvent['t']>(t: T) =>
     vi.waitFor(() => {
-      const event = events.find((e) => e.t === t);
+      const event = events.filter((e) => e.t === t).at(-1);
       if (!event) throw new Error(`no ${t} yet`);
       return event as Extract<SignalingEvent, { t: T }>;
     });
@@ -35,25 +54,69 @@ function client() {
 }
 
 describe('signaling server', () => {
-  it('pairs host and helper, relays negotiation and reports departures', async () => {
-    const host = client();
-    const helper = client();
-    await host.signaling.open({ t: 'host.open', v: PROTOCOL_VERSION });
-    const { code } = await host.waitFor('code');
+  it('pairs two devices, then relays a paired session', async () => {
+    const hostKey = createIdentity();
+    const helperKey = createIdentity();
+    const host = await client(hostKey, 'host', 'Grandma');
+    const helper = await client(helperKey, 'helper', 'Alex');
 
-    await helper.signaling.open({ t: 'helper.join', v: PROTOCOL_VERSION, code });
-    const paired = await helper.waitFor('paired');
+    host.signaling.send({ t: 'pair.open' });
+    const { code } = await host.waitFor('pair.code');
+    helper.signaling.send({ t: 'pair.redeem', code });
+    expect((await host.waitFor('pair.matched')).peer.id).toBe(helperKey.id);
+    host.signaling.send({ t: 'pair.confirm', peer: helperKey.id });
+    helper.signaling.send({ t: 'pair.confirm', peer: hostKey.id });
+    await helper.waitFor('pair.done');
+
+    helper.signaling.send({
+      t: 'session.request',
+      request: createSessionRequest(helperKey, hostKey.id),
+    });
+    const paired = await host.waitFor('paired');
+    expect(paired.peer).toBe(helperKey.id);
     expect(paired.iceServers[0]).toMatchObject({ urls: ['turn:127.0.0.1:3478'] });
-    await host.waitFor('paired');
 
     host.signaling.send({ t: 'signal', data: { kind: 'offer', sdp: 'v=0 offer' } });
     expect((await helper.waitFor('signal')).data).toEqual({ kind: 'offer', sdp: 'v=0 offer' });
-    helper.signaling.send({ t: 'signal', data: { kind: 'answer', sdp: 'v=0 answer' } });
-    expect((await host.waitFor('signal')).data).toEqual({ kind: 'answer', sdp: 'v=0 answer' });
 
     helper.signaling.close();
     await host.waitFor('peer.left');
+    expect(await host.waitFor('presence')).toEqual({
+      t: 'presence',
+      peer: helperKey.id,
+      online: false,
+    });
     host.signaling.close();
+  });
+
+  it('still supports one-time code sessions for signed-in devices', async () => {
+    const host = await client(createIdentity(), 'host', 'Grandma');
+    const helper = await client(createIdentity(), 'helper', 'Alex');
+    host.signaling.send({ t: 'host.open' });
+    const { code } = await host.waitFor('code');
+    helper.signaling.send({ t: 'helper.join', code });
+    await helper.waitFor('paired');
+    await host.waitFor('paired');
+    host.signaling.close();
+    helper.signaling.close();
+  });
+
+  it('refuses a device that cannot sign its challenge', async () => {
+    const impostor = createIdentity();
+    const claimed = createIdentity();
+    const signaling = new SignalingClient({
+      url: `ws://${base}/ws`,
+      onEvent: () => {},
+      authenticate: (nonce) => ({
+        t: 'auth',
+        v: PROTOCOL_VERSION,
+        device: claimed.id,
+        role: 'host',
+        name: 'Grandma',
+        sig: signText(impostor, signedText.auth(nonce)),
+      }),
+    });
+    await expect(signaling.connect()).rejects.toThrow(/did not accept/);
   });
 
   it('answers health checks', async () => {
@@ -73,12 +136,13 @@ describe('signaling server', () => {
 
   it('reports unrecognized messages', async () => {
     const socket = new WebSocket(`ws://${base}/ws`);
+    const messages: string[] = [];
+    socket.on('message', (data) => messages.push(String(data)));
     await new Promise((resolve) => socket.on('open', resolve));
-    const reply = new Promise<string>((resolve) =>
-      socket.on('message', (data) => resolve(String(data))),
-    );
     socket.send(JSON.stringify({ t: 'admin.shutdown' }));
-    expect(JSON.parse(await reply)).toMatchObject({ t: 'error', reason: 'bad-message' });
+    await vi.waitFor(() => {
+      if (!messages.some((m) => m.includes('bad-message'))) throw new Error('waiting');
+    });
     socket.close();
   });
 });

@@ -16,6 +16,8 @@ export interface ServerConfig {
   /** Browser origins allowed to connect. The apps connect from Node and send no Origin. */
   allowedOrigins: string[];
   maxRooms: number;
+  /** SQLite file for pairings; `:memory:` (the default) forgets them on restart. */
+  databasePath: string;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -40,6 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     trustProxy: env.TRUST_PROXY === '1',
     allowedOrigins: list(env.ALLOWED_ORIGINS),
     maxRooms: integer(env.MAX_ROOMS, 500, 'MAX_ROOMS'),
+    databasePath: env.DATABASE_PATH || ':memory:',
   };
 }
 

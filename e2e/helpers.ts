@@ -6,8 +6,9 @@ import {
 } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { networkInterfaces } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -19,7 +20,8 @@ export const TURN_SECRET = 'e2e-turn-secret-that-is-long-enough-1234';
 
 /** Starts the signaling server on a free port; resolves with its WebSocket URL. */
 export async function startServer(env: Record<string, string> = {}) {
-  const child = spawn(process.execPath, [join(root, 'server/src/index.ts')], {
+  const args = ['--disable-warning=ExperimentalWarning', join(root, 'server/src/index.ts')];
+  const child = spawn(process.execPath, args, {
     env: { ...process.env, PORT: '0', HOST: '127.0.0.1', ...env },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
@@ -80,7 +82,11 @@ export interface LaunchedApp {
   output: string[];
 }
 
-/** Launches a built app with the synthetic test screen, which needs no Screen Recording permission. */
+/**
+ * Launches a built app with the synthetic test screen (no Screen Recording permission needed),
+ * its own fresh data folder, a mock keychain and no Touch ID prompt. One-time code sessions are
+ * on, as most tests use them; pairing tests use the paired flow.
+ */
 export async function launch(
   app: 'host' | 'helper',
   env: Record<string, string>,
@@ -88,7 +94,15 @@ export async function launch(
   const application = await electron.launch({
     executablePath: electronPath,
     args: [join(root, 'apps', app)],
-    env: { ...process.env, RA_FAKE_SCREEN: '1', ...env },
+    env: {
+      ...process.env,
+      RA_FAKE_SCREEN: '1',
+      RA_USER_DATA_DIR: mkdtempSync(join(tmpdir(), `ra-e2e-${app}-`)),
+      RA_TEST_MOCK_KEYCHAIN: '1',
+      RA_TEST_NO_TOUCH_ID: '1',
+      RA_ALLOW_CODE_SESSIONS: '1',
+      ...env,
+    },
   });
   const output: string[] = [];
   const stdout = application.process().stdout;
@@ -97,18 +111,26 @@ export async function launch(
 }
 
 export const HELPER_NAME = 'Alex';
+export const HOST_NAME = 'Grandma';
 
-/** Host asks for help and shows a code; the helper types its name and the code. */
+/** The helper's first screen asks for its name. */
+export async function nameHelper(helper: LaunchedApp, name = HELPER_NAME): Promise<void> {
+  await helper.page.getByTestId('name-input').fill(name);
+  await helper.page.getByRole('button', { name: 'Continue' }).click();
+  await expect(helper.page.getByRole('heading', { name: 'People you help' })).toBeVisible();
+}
+
+/** Host shows a one-time code; the helper (named first) types it. */
 export async function requestHelp(
   host: LaunchedApp,
   helper: LaunchedApp,
   options: { tryWrongCode?: boolean } = {},
 ): Promise<void> {
-  await host.page.getByRole('button', { name: 'Get help from someone' }).click();
+  await nameHelper(helper);
+  await host.page.getByRole('button', { name: 'Get help with a one-time code' }).click();
   const codeText = host.page.getByTestId('session-code');
   await expect(codeText).toHaveText(/^\d{4} \d{4}$/);
   const code = (await codeText.textContent()) ?? '';
-  await helper.page.getByTestId('name-input').fill(HELPER_NAME);
 
   if (options.tryWrongCode) {
     const wrong = code === '0000 0000' ? '1111 1111' : '0000 0000';
@@ -148,4 +170,33 @@ export async function sessionBar(host: LaunchedApp): Promise<Page> {
 export async function numberFrom(page: Page, testId: string, attribute?: string): Promise<number> {
   const element = page.getByTestId(testId);
   return Number(attribute ? await element.getAttribute(attribute) : await element.textContent());
+}
+
+/** Host shows a pairing code; the helper (already named) types it. */
+export async function startPairing(host: LaunchedApp, helper: LaunchedApp): Promise<void> {
+  await host.page.getByRole('button', { name: /Pair with my helper|Add another helper/ }).click();
+  const codeText = host.page.getByTestId('pairing-code');
+  await expect(codeText).toHaveText(/^\d{4} \d{4}$/);
+  await helper.page.getByRole('button', { name: 'Pair with someone' }).click();
+  await helper.page.getByTestId('pairing-code-input').fill((await codeText.textContent()) ?? '');
+  await helper.page.getByRole('button', { name: 'Pair', exact: true }).click();
+}
+
+/** Both sides show their three words; returns them. */
+export async function pairingWords(host: LaunchedApp, helper: LaunchedApp) {
+  const hostWords = host.page.getByTestId('pairing-words');
+  const helperWords = helper.page.getByTestId('pairing-words');
+  await expect(hostWords).toBeVisible();
+  await expect(helperWords).toBeVisible();
+  return { host: await hostWords.textContent(), helper: await helperWords.textContent() };
+}
+
+/** Both people say the words match; the pairing completes on both sides. */
+export async function confirmWords(host: LaunchedApp, helper: LaunchedApp): Promise<void> {
+  await host.page.getByRole('button', { name: 'Yes, they match' }).click();
+  await helper.page.getByRole('button', { name: 'They match' }).click();
+  await expect(host.page.getByTestId('pairing-status')).toContainText('can now help you');
+  await expect(helper.page.getByTestId('pairing-status')).toContainText('Paired');
+  await host.page.getByRole('button', { name: 'Done' }).click();
+  await helper.page.getByRole('button', { name: 'Done' }).click();
 }

@@ -33,11 +33,11 @@ describe('Rooms', () => {
     const rooms = newRooms();
     const host = fakePeer();
     const helper = fakePeer('198.51.100.7');
-    rooms.handle(host, { t: 'host.open', v: 1 });
+    rooms.handle(host, { t: 'host.open' });
     const code = codeOf(host);
     expect(code).toMatch(/^\d{8}$/);
 
-    rooms.handle(helper, { t: 'helper.join', v: 1, code });
+    rooms.handle(helper, { t: 'helper.join', code });
     expect(host.sent.at(-1)).toEqual({ t: 'paired', iceServers: ICE });
     expect(helper.sent.at(-1)).toEqual({ t: 'paired', iceServers: ICE });
   });
@@ -45,12 +45,12 @@ describe('Rooms', () => {
   it('lets a code be used only once', () => {
     const rooms = newRooms();
     const host = fakePeer();
-    rooms.handle(host, { t: 'host.open', v: 1 });
+    rooms.handle(host, { t: 'host.open' });
     const code = codeOf(host);
-    rooms.handle(fakePeer(), { t: 'helper.join', v: 1, code });
+    rooms.handle(fakePeer(), { t: 'helper.join', code });
 
     const latecomer = fakePeer();
-    rooms.handle(latecomer, { t: 'helper.join', v: 1, code });
+    rooms.handle(latecomer, { t: 'helper.join', code });
     expect(latecomer.sent.at(-1)).toMatchObject({ t: 'error', reason: 'invalid-code' });
   });
 
@@ -61,8 +61,8 @@ describe('Rooms', () => {
     rooms.handle(host, { t: 'signal', data: { kind: 'offer', sdp: 'v=0' } });
     expect(host.sent.at(-1)).toMatchObject({ t: 'error', reason: 'not-in-session' });
 
-    rooms.handle(host, { t: 'host.open', v: 1 });
-    rooms.handle(helper, { t: 'helper.join', v: 1, code: codeOf(host) });
+    rooms.handle(host, { t: 'host.open' });
+    rooms.handle(helper, { t: 'helper.join', code: codeOf(host) });
     rooms.handle(host, { t: 'signal', data: { kind: 'offer', sdp: 'v=0 offer' } });
     rooms.handle(helper, { t: 'signal', data: { kind: 'answer', sdp: 'v=0 answer' } });
     expect(helper.sent.at(-1)).toEqual({ t: 'signal', data: { kind: 'offer', sdp: 'v=0 offer' } });
@@ -73,8 +73,8 @@ describe('Rooms', () => {
     const rooms = newRooms();
     const host = fakePeer();
     const helper = fakePeer();
-    rooms.handle(host, { t: 'host.open', v: 1 });
-    rooms.handle(helper, { t: 'helper.join', v: 1, code: codeOf(host) });
+    rooms.handle(host, { t: 'host.open' });
+    rooms.handle(helper, { t: 'helper.join', code: codeOf(host) });
 
     rooms.disconnect(helper);
     expect(host.sent.at(-1)).toEqual({ t: 'peer.left' });
@@ -84,35 +84,34 @@ describe('Rooms', () => {
   it('expires unused codes', () => {
     const rooms = newRooms();
     const host = fakePeer();
-    rooms.handle(host, { t: 'host.open', v: 1 });
+    rooms.handle(host, { t: 'host.open' });
     const code = codeOf(host);
 
     vi.advanceTimersByTime(60_000);
     expect(host.sent.at(-1)).toMatchObject({ t: 'error', reason: 'code-expired' });
     const helper = fakePeer();
-    rooms.handle(helper, { t: 'helper.join', v: 1, code });
+    rooms.handle(helper, { t: 'helper.join', code });
     expect(helper.sent.at(-1)).toMatchObject({ t: 'error', reason: 'invalid-code' });
   });
 
   it('rate-limits join attempts per address', () => {
     const rooms = newRooms();
     const guesser = fakePeer('203.0.113.9');
-    for (let i = 0; i < 20; i++)
-      rooms.handle(guesser, { t: 'helper.join', v: 1, code: '00000000' });
+    for (let i = 0; i < 20; i++) rooms.handle(guesser, { t: 'helper.join', code: '00000000' });
     expect(guesser.sent.at(-1)).toMatchObject({ reason: 'invalid-code' });
-    rooms.handle(guesser, { t: 'helper.join', v: 1, code: '00000000' });
+    rooms.handle(guesser, { t: 'helper.join', code: '00000000' });
     expect(guesser.sent.at(-1)).toMatchObject({ reason: 'rate-limited' });
   });
 
   it('refuses new rooms when full, and a second open on the same connection', () => {
     const rooms = newRooms({ maxRooms: 1 });
     const host = fakePeer();
-    rooms.handle(host, { t: 'host.open', v: 1 });
-    rooms.handle(host, { t: 'host.open', v: 1 });
+    rooms.handle(host, { t: 'host.open' });
+    rooms.handle(host, { t: 'host.open' });
     expect(host.sent.at(-1)).toMatchObject({ reason: 'bad-message' });
 
     const other = fakePeer();
-    rooms.handle(other, { t: 'host.open', v: 1 });
+    rooms.handle(other, { t: 'host.open' });
     expect(other.sent.at(-1)).toMatchObject({ reason: 'server-busy' });
   });
 });

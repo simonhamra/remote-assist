@@ -338,3 +338,66 @@ textarea {
 .history-when {
   color: var(--muted);
 }
+
+/* People and pairing */
+.people {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.person {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.presence {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #b9b2a6;
+}
+
+.presence.online {
+  background: #2e9d6e;
+}
+
+.confirm-remove {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.words {
+  margin: 8px 0;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.verified {
+  align-self: center;
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #dff3ea;
+  color: #1f6f5c;
+  font-weight: 600;
+}

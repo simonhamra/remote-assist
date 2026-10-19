@@ -1,12 +1,8 @@
+import type { PeopleState } from '@remote-assist/desktop/channels';
 import { formatSessionCode } from '@remote-assist/protocol';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type {
-  AppConfig,
-  ControlStatus,
-  ScreenPermission,
-  SessionOutcome,
-  SessionRecord,
-} from '../../shared/api';
+import type { AppConfig, ControlStatus, ScreenPermission } from '../../shared/api';
+import { Home, PairingView } from './Home';
 import { HostSession, type HostState } from './hostSession';
 import { HostStats } from './HostStats';
 
@@ -14,6 +10,8 @@ export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [permission, setPermission] = useState<ScreenPermission>('unknown');
   const [session, setSession] = useState<HostSession | null>(null);
+  const people = usePeople();
+  const activeSession = useRef<HostSession | null>(null);
 
   useEffect(() => {
     void window.hostApi.getConfig().then(setConfig);
@@ -27,24 +25,38 @@ export function App() {
     return () => window.removeEventListener('focus', refresh);
   }, []);
 
-  const start = () => {
+  // A paired helper asks to help (the main process has checked the signature): the session
+  // starts with the consent question. It must exist before the next message arrives.
+  useEffect(() => {
     if (!config) return;
-    setSession(
-      HostSession.start({
-        fakeScreen: config.fakeScreen,
-        forceRelay: config.forceRelay,
-        limits: config.consentMs ? { consentMs: config.consentMs } : {},
-      }),
-    );
+    return window.hostApi.onSessionEvent((event) => {
+      if (event.t !== 'verified' || activeSession.current) return;
+      const incoming = HostSession.incoming(event.peer, sessionOptions(config));
+      activeSession.current = incoming;
+      setSession(incoming);
+    });
+  }, [config]);
+
+  const startCodeSession = () => {
+    if (!config || activeSession.current) return;
+    const started = HostSession.start(sessionOptions(config));
+    activeSession.current = started;
+    setSession(started);
   };
+
+  const done = () => {
+    activeSession.current = null;
+    setSession(null);
+  };
+
+  const pairing = people && people.pairing.step !== 'idle';
 
   return (
     <main className="app">
       <header>
         <h1>Remote Assist</h1>
         <p className="lead">
-          When someone you trust is helping you on the phone, press the button and read them the
-          number. Nothing is shared until you say yes.
+          The people you pair with can ask to help you. Nothing is shared until you say yes.
         </p>
         {config?.fakeScreen && <p className="badge">Test mode: a fake screen is shared</p>}
       </header>
@@ -52,17 +64,33 @@ export function App() {
       {config && !config.fakeScreen && <PermissionNotice permission={permission} />}
 
       {session ? (
-        <SessionView session={session} onDone={() => setSession(null)} />
-      ) : (
-        <>
-          <button type="button" className="primary big" onClick={start} disabled={!config}>
-            Get help from someone
-          </button>
-          <RecentSessions />
-        </>
-      )}
+        <SessionView session={session} onDone={done} />
+      ) : pairing && people ? (
+        <PairingView people={people} />
+      ) : config && people ? (
+        <Home config={config} people={people} onCodeSession={startCodeSession} />
+      ) : null}
     </main>
   );
+}
+
+function sessionOptions(config: AppConfig) {
+  return {
+    fakeScreen: config.fakeScreen,
+    forceRelay: config.forceRelay,
+    limits: config.consentMs ? { consentMs: config.consentMs } : {},
+  };
+}
+
+/** The people this computer is paired with, kept up to date by the main process. */
+function usePeople(): PeopleState | null {
+  const [people, setPeople] = useState<PeopleState | null>(null);
+  useEffect(() => {
+    const stop = window.hostApi.onPeople(setPeople);
+    void window.hostApi.getPeople().then(setPeople);
+    return stop;
+  }, []);
+  return people;
 }
 
 function SessionView({ session, onDone }: { session: HostSession; onDone(): void }) {
@@ -144,13 +172,20 @@ function ConsentCard({
         {name.slice(0, 1).toUpperCase()}
       </div>
       <h2 id="consent-title">{name} would like to help you</h2>
+      {state.verified && (
+        <p className="verified" data-testid="consent-verified">
+          ✓ Paired with this computer
+        </p>
+      )}
       <p id="consent-details">
         {name} will be able to <strong>see your screen</strong> and{' '}
         <strong>use your mouse and keyboard</strong>. You can press <strong>Pause</strong> or{' '}
         <strong>Stop</strong> at any time.
       </p>
       <p className="hint">
-        Only say yes if you are talking to {name} right now and you asked for help.
+        {state.verified
+          ? `Say yes if you want ${name}'s help right now.`
+          : `This person used a one-time code. Only say yes if you are talking to ${name} right now and you asked for help.`}
       </p>
       <button type="button" className="primary big" onClick={() => void session.accept()}>
         Yes, let {name} help
@@ -205,43 +240,6 @@ function LiveCard({
       </div>
       {screen && !state.paused && <Preview stream={screen} />}
       {pc && <HostStats pc={pc} />}
-    </section>
-  );
-}
-
-const OUTCOMES: Record<SessionOutcome, string> = {
-  declined: 'you said no',
-  unanswered: 'not answered',
-  stopped: 'you stopped it',
-  'helper-left': 'they finished',
-  locked: 'ended when the screen locked',
-  idle: 'ended: no activity',
-  'time-limit': 'ended: time limit',
-  lost: 'connection lost',
-  error: 'could not start',
-};
-
-/** Every request, accepted or not, so nothing happens without a trace. */
-function RecentSessions() {
-  const [records, setRecords] = useState<SessionRecord[]>([]);
-  useEffect(() => {
-    void window.hostApi.sessionHistory().then(setRecords);
-  }, []);
-  if (records.length === 0) return null;
-  const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-  return (
-    <section className="history" aria-labelledby="history-title">
-      <h2 id="history-title">Recent requests</h2>
-      <ul data-testid="history">
-        {records.slice(0, 5).map((record) => (
-          <li key={`${record.askedAt}-${record.endedAt}`}>
-            <span className="history-when">{when.format(record.askedAt)}</span>
-            <span>
-              <strong>{record.helperName}</strong>: {OUTCOMES[record.outcome]}
-            </span>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }

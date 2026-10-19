@@ -3,9 +3,10 @@ import { createServer, type IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ServerConfig } from './config.ts';
+import { Hub, type Connection } from './hub.ts';
 import { jsonLog, type Log } from './log.ts';
 import { RateLimiter } from './rateLimit.ts';
-import { Rooms, type Peer } from './rooms.ts';
+import { PairingStore } from './store.ts';
 import { iceServersFor } from './turn.ts';
 
 const HEARTBEAT_MS = 30_000;
@@ -20,7 +21,9 @@ export interface SignalingServer {
 }
 
 export function createSignalingServer(config: ServerConfig, log: Log = jsonLog): SignalingServer {
-  const rooms = new Rooms({
+  const store = new PairingStore(config.databasePath);
+  const hub = new Hub({
+    store,
     codeTtlMs: config.codeTtlMs,
     maxRooms: config.maxRooms,
     iceServers: () => iceServersFor(config),
@@ -49,11 +52,12 @@ export function createSignalingServer(config: ServerConfig, log: Log = jsonLog):
 
   function attach(ws: WebSocket, request: IncomingMessage): void {
     const socketKey = String(nextSocket++);
-    const peer: Peer = {
+    const connection: Connection = {
       ip: clientIp(request, config),
       send: (message: ServerMessage) => {
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(message));
       },
+      close: () => ws.close(1008, 'Signed out'),
     };
     responsive.add(ws);
     ws.on('pong', () => responsive.add(ws));
@@ -64,13 +68,14 @@ export function createSignalingServer(config: ServerConfig, log: Log = jsonLog):
       }
       const message = isBinary ? null : parseClientMessage(data.toString());
       if (!message) {
-        peer.send({ t: 'error', reason: 'bad-message', message: 'Unrecognized message.' });
+        connection.send({ t: 'error', reason: 'bad-message', message: 'Unrecognized message.' });
         return;
       }
-      rooms.handle(peer, message);
+      hub.handle(connection, message);
     });
-    ws.on('close', () => rooms.disconnect(peer));
+    ws.on('close', () => hub.disconnect(connection));
     ws.on('error', () => ws.terminate());
+    hub.connect(connection);
   }
 
   // Drop connections that stopped answering pings (laptop lid closed, network gone).
@@ -83,7 +88,7 @@ export function createSignalingServer(config: ServerConfig, log: Log = jsonLog):
       responsive.delete(ws);
       ws.ping();
     }
-    rooms.prune();
+    hub.prune();
     messageRate.prune();
   }, HEARTBEAT_MS);
   heartbeat.unref();
@@ -96,11 +101,12 @@ export function createSignalingServer(config: ServerConfig, log: Log = jsonLog):
       }),
     close: async () => {
       clearInterval(heartbeat);
-      rooms.closeAll();
+      hub.closeAll();
       for (const ws of wss.clients) ws.terminate();
       wss.close();
       http.closeAllConnections();
       await new Promise<void>((resolve) => http.close(() => resolve()));
+      store.close();
     },
   };
 }

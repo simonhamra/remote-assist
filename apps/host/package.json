@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json"
   },
   "dependencies": {
+    "@remote-assist/crypto": "*",
     "@remote-assist/desktop": "*",
     "@remote-assist/native-input": "*",
     "@remote-assist/protocol": "*",

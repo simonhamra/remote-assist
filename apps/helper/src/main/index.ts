@@ -1,16 +1,25 @@
 import {
+  ServerBridge,
+  Settings,
+  TrustStore,
+  loadIdentity,
   lockDown,
   machineId,
-  registerSignalingBridge,
   trustedHandler,
 } from '@remote-assist/desktop/main';
-import { app, BrowserWindow, screen, session } from 'electron';
+import type { TrustedPeer } from '@remote-assist/desktop/channels';
+import { app, BrowserWindow, safeStorage, screen, session, systemPreferences } from 'electron';
 import { join } from 'node:path';
 import { Channels, type AppConfig, type ProbeRect } from '../shared/api';
+
+// Test and development switches, as in the host app.
+if (process.env.RA_USER_DATA_DIR) app.setPath('userData', process.env.RA_USER_DATA_DIR);
+if (process.env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
 
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
   forceRelay: process.env.RA_FORCE_RELAY === '1',
+  allowCodeSessions: process.env.RA_ALLOW_CODE_SESSIONS === '1',
   machine: machineId(),
 };
 const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
@@ -106,13 +115,48 @@ function registerIpc(): void {
   handle(Channels.config, () => config);
   handle(Channels.showProbe, () => showProbe());
   handle(Channels.hideProbe, () => hideProbe());
-  registerSignalingBridge({
+}
+
+/**
+ * Before asking to help someone, make sure it's really you at this Mac: Touch ID, when the Mac
+ * has it. (RA_TEST_NO_TOUCH_ID skips it in automated tests.)
+ */
+async function confirmItsYou(peer: TrustedPeer): Promise<boolean> {
+  if (process.env.RA_TEST_NO_TOUCH_ID === '1' || !systemPreferences.canPromptTouchID()) return true;
+  try {
+    await systemPreferences.promptTouchID(`help ${peer.name}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function startServerBridge(): ServerBridge {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('This computer cannot store the device key securely.');
+  }
+  const data = app.getPath('userData');
+  const bridge = new ServerBridge({
     url: signalingUrl,
     role: 'helper',
+    identity: loadIdentity(join(data, 'device-key.bin'), {
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (bytes) => safeStorage.decryptString(bytes),
+    }),
+    trust: new TrustStore(join(data, 'trusted-computers.json')),
+    settings: new Settings(join(data, 'settings.json')),
+    defaultName: process.env.RA_DEVICE_NAME ?? 'Helper',
     handle,
-    getWindow: () => mainWindow,
+    toWindow: (channel, payload) => mainWindow?.webContents.send(channel, payload),
+    allowCodeSessions: config.allowCodeSessions,
+    confirmRequest: confirmItsYou,
+    onAttention: () => mainWindow?.show(),
   });
+  bridge.start();
+  return bridge;
 }
+
+let bridge: ServerBridge | null = null;
 
 void app.whenReady().then(() => {
   // The helper needs no camera, microphone or other device access.
@@ -120,6 +164,7 @@ void app.whenReady().then(() => {
     callback(false),
   );
   registerIpc();
+  bridge = startServerBridge();
   mainWindow = createMainWindow();
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -127,4 +172,5 @@ void app.whenReady().then(() => {
   });
 });
 
+app.on('will-quit', () => bridge?.stop());
 app.on('window-all-closed', () => app.quit());

@@ -6,9 +6,14 @@
   "type": "module",
   "exports": {
     "./main": "./src/main.ts",
-    "./channels": "./src/channels.ts"
+    "./channels": "./src/channels.ts",
+    "./preload": "./src/preload.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@remote-assist/crypto": "*",
+    "@remote-assist/protocol": "*"
   }
 }

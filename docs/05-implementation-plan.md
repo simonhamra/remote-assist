@@ -94,15 +94,31 @@ Before consent there is no connection at all, so the consent card can't be reach
 
 ## Phase 5: Pairing and trusted devices
 
-- [ ] `packages/crypto`: Ed25519 keygen, sign/verify, confirmation words (a 2048-word list → 3 words ≈ 33 bits)
-- [ ] Keys at rest through `safeStorage`
-- [ ] Pairing: 8-digit code (hashed, 10 min TTL, 5 attempts, single use) → key exchange → 3-word confirmation on both screens → pin
-- [ ] Signed `session.request`, offer and answer (nonce, timestamp, recipient). Reject unsigned, stale, replayed, or unpinned.
-- [ ] Pairing lock after the first helper. Additional helpers need approval from an existing helper. Pairing attempts are reported to all helpers.
-- [ ] Revocation from both sides. Helper Touch ID / OS-auth gate before a session.
-- [ ] Ad-hoc expiring session codes (off by default, enabled only by a paired helper)
+- [x] `packages/crypto`: Ed25519 identities (the public key is the device ID), signatures bound to their purpose, confirmation words (BIP-39 list, 3 words ≈ 33 bits), signed session requests and a replay guard
+- [x] Keys at rest through `safeStorage` (Keychain); a new key is made if the stored one can't be read
+- [x] Server: sign-in by signed challenge, pairings in SQLite (`node:sqlite`, no native module), presence for paired devices, session requests only between paired devices
+- [x] Pairing: 8-digit code (10 min, single use, in memory, rate-limited) → keys exchanged → the same 3 words on both screens → both confirm → each side pins the other
+- [x] Signed session requests (sender, recipient, nonce, timestamp) and signed offers and answers. The host rejects unsigned, stale, replayed or unpinned requests; a bad SDP signature ends the session.
+- [x] Pairing lock: once a computer has a helper, a new one needs an existing helper's approval, and existing helpers see every attempt
+- [x] Removal from either side, applied at once on that device and passed on by the server (or at the next sign-in if offline). Touch ID before a helper's request.
+- [x] One-time code sessions kept for development and tests only (`RA_ALLOW_CODE_SESSIONS=1`), with the consent card marking them as unverified
+- Not done: a photo (the card shows an initial), an OS-password fallback on Macs without Touch ID, and letting a paired helper switch on one-time codes remotely.
 
 **Exit:** with a tampering proxy in front of the server (modified SDP, swapped keys, replayed requests), every session **fails closed**. Expired, reused and brute-forced codes are rejected.
+
+**Results:** the tampering proxy runs three attacks, and each fails:
+- a key swapped during pairing shows different words on the two screens, and nothing is paired;
+- an offer altered on the way stops the session before anything connects;
+- a replayed genuine request produces no question at all.
+
+Separately, unit and integration tests cover:
+- sign-in with a wrong key;
+- expired and reused codes;
+- per-address rate limits;
+- requests to unpaired, offline or busy hosts;
+- forged requests;
+- approval and refusal of a second helper;
+- removal.
 
 ## Phase 6: Grandma-proof setup and UX
 

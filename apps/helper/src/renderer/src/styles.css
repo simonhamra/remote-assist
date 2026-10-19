@@ -321,3 +321,79 @@ textarea {
   font: inherit;
   font-size: 1.05rem;
 }
+
+/* People and pairing */
+.people {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.people li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.person {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.presence {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #5b6370;
+}
+
+.presence.online {
+  background: var(--accent);
+}
+
+.confirm-remove {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.words {
+  margin: 6px 0;
+  font-size: 1.8rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+}
+
+.text-input {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1014;
+  color: var(--ink);
+  font: inherit;
+  font-size: 1.1rem;
+}
+
+.notice-card {
+  border-color: #f0b65c;
+}
+
+.warning {
+  margin: 0;
+  color: #f0b65c;
+}

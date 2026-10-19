@@ -3,6 +3,7 @@ import type {
   ErrorReason,
   IceServer,
   ServerMessage,
+  SessionRequest,
   SignalData,
 } from '@remote-assist/protocol';
 import { randomInt, randomUUID } from 'node:crypto';
@@ -32,7 +33,15 @@ export interface RoomsOptions {
 
 const WINDOW_MS = 10 * 60 * 1000;
 
-/** Session codes, and pairing one host with one helper. Knows nothing about sockets. */
+export type RoomMessage = Extract<
+  ClientMessage,
+  { t: 'host.open' | 'helper.join' | 'signal' | 'leave' }
+>;
+
+/**
+ * Rooms join one host and one helper for a session: either through a one-time code, or for
+ * paired devices through a signed request. Knows nothing about sockets.
+ */
 export class Rooms {
   private readonly options: RoomsOptions;
   private readonly rooms = new Set<Room>();
@@ -50,7 +59,7 @@ export class Rooms {
     return this.rooms.size;
   }
 
-  handle(peer: Peer, message: ClientMessage): void {
+  handle(peer: Peer, message: RoomMessage): void {
     switch (message.t) {
       case 'host.open':
         return this.open(peer);
@@ -61,6 +70,31 @@ export class Rooms {
       case 'leave':
         return this.leave(peer);
     }
+  }
+
+  /**
+   * A paired helper's request to a host (both signed in, pairing checked by the caller). The
+   * host gets the signed request to check against the key it pinned when pairing.
+   */
+  openSession(
+    host: Peer,
+    helper: Peer,
+    ids: { host: string; helper: string },
+    request: SessionRequest,
+  ): void {
+    if (this.byPeer.has(helper)) return fail(helper, 'bad-message', 'Already in a session.');
+    if (this.byPeer.has(host)) return fail(helper, 'busy', 'They are already in a session.');
+    if (this.rooms.size >= this.options.maxRooms) {
+      return fail(helper, 'server-busy', 'The server is busy. Try again in a minute.');
+    }
+    const room: Room = { id: randomUUID(), code: null, host, helper, expiry: null };
+    this.rooms.add(room);
+    this.byPeer.set(host, room);
+    this.byPeer.set(helper, room);
+    const iceServers = this.options.iceServers();
+    host.send({ t: 'paired', iceServers, peer: ids.helper, request });
+    helper.send({ t: 'paired', iceServers, peer: ids.host });
+    this.options.log('room.requested', { room: room.id, rooms: this.rooms.size });
   }
 
   /** The peer's connection closed. */
