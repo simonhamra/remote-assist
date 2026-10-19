@@ -4,11 +4,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # Install only the server's runtime dependencies. Every workspace manifest is copied so npm can
-# check the lockfile, but nothing from the desktop apps gets installed.
+# check the lockfile (add new workspaces here), but nothing from the desktop apps gets installed.
 COPY package.json package-lock.json ./
 COPY apps/host/package.json apps/host/
 COPY apps/helper/package.json apps/helper/
 COPY packages/desktop/package.json packages/desktop/
+COPY packages/native-input/package.json packages/native-input/
 COPY packages/protocol/package.json packages/protocol/
 COPY packages/rtc/package.json packages/rtc/
 COPY server/package.json server/
