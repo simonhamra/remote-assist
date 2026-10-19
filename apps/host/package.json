@@ -6,6 +6,7 @@
   "description": "Runs on the computer being helped. Shares the screen after explicit consent.",
   "main": "./out/main/index.js",
   "scripts": {
+    "predev": "node ../../packages/native-input/scripts/build.mjs",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
@@ -13,6 +14,7 @@
   },
   "dependencies": {
     "@remote-assist/desktop": "*",
+    "@remote-assist/native-input": "*",
     "@remote-assist/protocol": "*",
     "@remote-assist/rtc": "*",
     "react": "^19.3.1",

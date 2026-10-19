@@ -16,6 +16,10 @@ const api: HostApi = {
     ipcRenderer.on(SessionChannels.event, forward);
     return () => void ipcRenderer.removeListener(SessionChannels.event, forward);
   },
+  sendInput: (event) => ipcRenderer.send(Channels.input, event),
+  setRemoteControl: (enabled, helperMachine) =>
+    ipcRenderer.invoke(Channels.setRemoteControl, enabled, helperMachine),
+  openAccessibilitySettings: () => ipcRenderer.invoke(Channels.openAccessibilitySettings),
 };
 
 contextBridge.exposeInMainWorld('hostApi', api);

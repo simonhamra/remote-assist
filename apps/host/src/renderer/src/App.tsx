@@ -1,6 +1,6 @@
 import { formatSessionCode } from '@remote-assist/protocol';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { AppConfig, ScreenPermission } from '../../shared/api';
+import type { AppConfig, ControlStatus, ScreenPermission } from '../../shared/api';
 import { HostSession } from './hostSession';
 import { HostStats } from './HostStats';
 
@@ -115,6 +115,7 @@ function SessionView({ session, onDone }: { session: HostSession; onDone(): void
           {state.reconnecting && (
             <p className="warning">The connection was interrupted. Trying to reconnect…</p>
           )}
+          <ControlNotice session={session} status={state.control} />
           <Preview stream={session.source.stream} />
           <button
             type="button"
@@ -140,6 +141,65 @@ function SessionView({ session, onDone }: { session: HostSession; onDone(): void
         </section>
       );
   }
+}
+
+function ControlNotice({
+  session,
+  status,
+}: {
+  session: HostSession;
+  status: ControlStatus | null;
+}) {
+  // After switching Accessibility on in System Settings, coming back to the window re-checks it.
+  useEffect(() => {
+    if (status?.reason !== 'permission') return;
+    const recheck = () => void session.refreshControl();
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, [session, status?.reason]);
+
+  if (!status) return null;
+  if (status.available) {
+    return (
+      <p className="hint" data-testid="control-status">
+        Your helper can also use your mouse and keyboard.
+      </p>
+    );
+  }
+  if (status.reason === 'same-computer') {
+    return (
+      <p className="hint" data-testid="control-status">
+        Your helper is on this same computer, so mouse and keyboard control is off.
+      </p>
+    );
+  }
+  if (status.reason === 'unsupported') {
+    return (
+      <p className="hint" data-testid="control-status">
+        Your helper can see your screen. Using your mouse and keyboard isn't available in this
+        version.
+      </p>
+    );
+  }
+  return (
+    <section className="notice" role="status" data-testid="control-status">
+      <h2>Let your helper use your mouse and keyboard?</h2>
+      <p>
+        macOS asks for this once. Open System Settings and switch on Accessibility for this app.
+        Your helper can see your screen either way.
+      </p>
+      <p className="hint">
+        During development, macOS lists the app that started Remote Assist (for example Terminal).
+      </p>
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => void window.hostApi.openAccessibilitySettings()}
+      >
+        Open System Settings
+      </button>
+    </section>
+  );
 }
 
 function PermissionNotice({ permission }: { permission: ScreenPermission }) {

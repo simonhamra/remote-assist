@@ -1,9 +1,13 @@
 import {
   isMainFrame,
   lockDown,
+  machineId,
   registerSignalingBridge,
   trustedHandler,
+  trustedListener,
 } from '@remote-assist/desktop/main';
+import { InputAgent } from '@remote-assist/native-input';
+import { parseInputEvent } from '@remote-assist/protocol';
 import {
   app,
   BrowserWindow,
@@ -16,13 +20,16 @@ import {
   type Streams,
 } from 'electron';
 import { join } from 'node:path';
-import { Channels, type AppConfig, type ScreenPermission } from '../shared/api';
+import { Channels, type AppConfig, type ControlStatus, type ScreenPermission } from '../shared/api';
+import { InputController } from './inputController';
 
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
   forceRelay: process.env.RA_FORCE_RELAY === '1',
 };
 const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
+/** RA_INPUT_DRY_RUN=1: log input events instead of posting them (tests; no permission needed). */
+const inputDryRun = process.env.RA_INPUT_DRY_RUN === '1';
 
 // The peer is someone you paired with on purpose, so share real LAN addresses instead of mDNS
 // names. mDNS resolution needs multicast, which is less reliable and more likely to trigger
@@ -30,7 +37,47 @@ const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 
 let mainWindow: BrowserWindow | null = null;
+/** The display chosen for capture; remote input is mapped onto the same one. */
+let capturedDisplayId: string | null = null;
 const handle = trustedHandler(() => mainWindow);
+const listen = trustedListener(() => mainWindow);
+
+const agent = new InputAgent(
+  app.isPackaged
+    ? join(process.resourcesPath, 'input-agent')
+    : join(app.getAppPath(), '../../packages/native-input/bin/input-agent'),
+  {
+    dryRun: inputDryRun,
+    onMessage: (message) => {
+      if (inputDryRun || message.event === 'error')
+        console.log(`[input-agent] ${JSON.stringify(message)}`);
+    },
+  },
+);
+
+const input = new InputController({
+  send: (command) => agent.send(command),
+  display: () => {
+    const displays = screen.getAllDisplays();
+    return (displays.find((d) => String(d.id) === capturedDisplayId) ?? screen.getPrimaryDisplay())
+      .bounds;
+  },
+  ownWindows: () =>
+    BrowserWindow.getAllWindows()
+      .filter((w) => w.isVisible() && !w.isMinimized())
+      .map((w) => w.getBounds()),
+  ownWindowFocused: () => BrowserWindow.getFocusedWindow() !== null,
+});
+
+function controlStatus(helperMachine: unknown): ControlStatus {
+  if (!agent.available) return { available: false, reason: 'unsupported' };
+  // Dry runs post nothing, so the end-to-end tests can run both apps on one computer.
+  if (!inputDryRun && helperMachine === machineId()) {
+    return { available: false, reason: 'same-computer' };
+  }
+  const trusted = inputDryRun || systemPreferences.isTrustedAccessibilityClient(false);
+  return trusted ? { available: true } : { available: false, reason: 'permission' };
+}
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -73,7 +120,9 @@ async function chooseScreen(
   });
   const primaryId = String(screen.getPrimaryDisplay().id);
   const source = sources.find((s) => s.display_id === primaryId) ?? sources[0];
-  return source ? { video: source } : null;
+  if (!source) return null;
+  capturedDisplayId = source.display_id || primaryId;
+  return { video: source };
 }
 
 function configureSession(): void {
@@ -112,14 +161,40 @@ function registerIpc(): void {
     app.getAppMetrics().reduce((total, metric) => total + metric.cpu.percentCPUUsage, 0),
   );
   registerSignalingBridge({ url: signalingUrl, role: 'host', handle, getWindow: () => mainWindow });
+
+  listen(Channels.input, (event) => {
+    const parsed = parseInputEvent(event);
+    if (parsed) input.handle(parsed);
+  });
+  handle(Channels.setRemoteControl, (enabled, helperMachine): ControlStatus => {
+    const status = controlStatus(helperMachine);
+    input.setEnabled(enabled === true && status.available);
+    return status;
+  });
+  handle(Channels.openAccessibilitySettings, async () => {
+    if (process.platform !== 'darwin') return;
+    // Adds the app to the Accessibility list (switched off) and shows macOS's own prompt.
+    systemPreferences.isTrustedAccessibilityClient(true);
+    await shell.openExternal(
+      'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+    );
+  });
 }
 
 void app.whenReady().then(() => {
   configureSession();
   registerIpc();
   mainWindow = createWindow();
-  mainWindow.on('closed', () => (mainWindow = null));
+  // Whatever happens to the window, the helper loses the mouse and keyboard.
+  mainWindow.webContents.on('render-process-gone', () => input.setEnabled(false));
+  mainWindow.on('closed', () => {
+    input.setEnabled(false);
+    mainWindow = null;
+  });
 });
+
+// Closing the agent's input makes it release everything before it exits.
+app.on('will-quit', () => agent.stop());
 
 // Closing the window ends any sharing, so there is nothing left to keep running.
 app.on('window-all-closed', () => app.quit());

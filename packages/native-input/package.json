@@ -1,0 +1,14 @@
+{
+  "name": "@remote-assist/native-input",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Turns validated remote-input commands into real mouse and keyboard events (macOS agent).",
+  "type": "module",
+  "exports": {
+    ".": "./src/agent.ts"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  }
+}

@@ -12,7 +12,8 @@
     "src/shared/**/*.ts",
     "../../tooling/**/*.ts",
     "../../packages/desktop/src/**/*.ts",
-    "../../packages/protocol/src/**/*.ts"
+    "../../packages/protocol/src/**/*.ts",
+    "../../packages/native-input/src/**/*.ts"
   ],
   "exclude": ["../../packages/*/src/**/*.test.ts"]
 }

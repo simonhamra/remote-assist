@@ -26,15 +26,7 @@ export function App() {
   if (session && state?.name === 'live' && config) {
     const pc = session.peerConnection;
     if (pc) {
-      return (
-        <Viewer
-          pc={pc}
-          stream={state.stream}
-          fakeScreen={config.fakeScreen}
-          reconnecting={state.reconnecting}
-          onDisconnect={() => session.disconnect()}
-        />
-      );
+      return <Viewer session={session} state={state} pc={pc} fakeScreen={config.fakeScreen} />;
     }
   }
 

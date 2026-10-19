@@ -1,4 +1,4 @@
-import type { SignalData, SignalingEvent } from '@remote-assist/protocol';
+import type { InputEvent, SignalData, SignalingEvent } from '@remote-assist/protocol';
 
 /** The contract between the host's main process and its renderer, exposed as `window.hostApi`. */
 
@@ -7,7 +7,20 @@ export const Channels = {
   screenPermission: 'screen:permission',
   openScreenSettings: 'screen:open-settings',
   cpu: 'metrics:cpu',
+  input: 'input:event',
+  setRemoteControl: 'input:set-enabled',
+  openAccessibilitySettings: 'input:open-accessibility-settings',
 } as const;
+
+/** Whether the helper can use the mouse and keyboard right now, and if not, why. */
+export interface ControlStatus {
+  available: boolean;
+  /**
+   * `permission`: macOS Accessibility is off. `unsupported`: no input agent in this build.
+   * `same-computer`: the helper runs on this computer, so it would only control itself.
+   */
+  reason?: 'permission' | 'unsupported' | 'same-computer';
+}
 
 export interface AppConfig {
   /** RA_FAKE_SCREEN=1: share a synthetic test screen instead of the real display. */
@@ -31,4 +44,13 @@ export interface HostApi {
   leaveSession(): Promise<void>;
   /** Returns a function that stops listening. */
   onSessionEvent(listener: (event: SignalingEvent) => void): () => void;
+  /** Passes one event from the helper to the input gate in the main process. */
+  sendInput(event: InputEvent): void;
+  /**
+   * Turns remote control on while a session is live, and off when it ends. `helperMachine` is
+   * the helper's computer, from its `hello` message.
+   */
+  setRemoteControl(enabled: boolean, helperMachine?: string): Promise<ControlStatus>;
+  /** Asks macOS for Accessibility access and opens its settings pane. */
+  openAccessibilitySettings(): Promise<void>;
 }

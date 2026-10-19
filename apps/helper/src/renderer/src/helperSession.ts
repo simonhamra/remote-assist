@@ -1,4 +1,12 @@
-import type { IceServer, SignalData, SignalingEvent } from '@remote-assist/protocol';
+import {
+  encodePointerMove,
+  parsePeerMessage,
+  type IceServer,
+  type InputEvent,
+  type PeerMessage,
+  type SignalData,
+  type SignalingEvent,
+} from '@remote-assist/protocol';
 import {
   candidateInit,
   createPeerConnection,
@@ -6,10 +14,18 @@ import {
   tuneReceiver,
 } from '@remote-assist/rtc';
 
+/** What the host reported about remote control: available, or why not. */
+export type ControlState = Omit<Extract<PeerMessage, { t: 'control' }>, 't'>;
+
 export type HelperState =
   | { name: 'contacting' }
   | { name: 'connecting' }
-  | { name: 'live'; reconnecting: boolean; stream: MediaStream | null }
+  | {
+      name: 'live';
+      reconnecting: boolean;
+      stream: MediaStream | null;
+      control: ControlState | null;
+    }
   | { name: 'ended'; message: string; wasLive: boolean };
 
 /** How long a dropped connection may take to come back (the host restarts ICE) before ending. */
@@ -18,22 +34,27 @@ const RECONNECT_GRACE_MS = 15_000;
 /** The helper's side of one session: joins with the host's code and receives the screen. */
 export class HelperSession {
   private readonly forceRelay: boolean;
+  private readonly machine: string;
   private readonly listeners = new Set<() => void>();
   private readonly stopListening: () => void;
   private state: HelperState = { name: 'contacting' };
   private pc: RTCPeerConnection | null = null;
   private stream: MediaStream | null = null;
+  private control: ControlState | null = null;
+  private controlChannel: RTCDataChannel | null = null;
+  private pointerChannel: RTCDataChannel | null = null;
   private wasLive = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private graceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  private constructor(forceRelay: boolean) {
+  private constructor(forceRelay: boolean, machine: string) {
     this.forceRelay = forceRelay;
+    this.machine = machine;
     this.stopListening = window.helperApi.onSessionEvent(this.onEvent);
   }
 
-  static join(code: string, options: { forceRelay: boolean }): HelperSession {
-    const session = new HelperSession(options.forceRelay);
+  static join(code: string, options: { forceRelay: boolean; machine: string }): HelperSession {
+    const session = new HelperSession(options.forceRelay, options.machine);
     window.helperApi.joinSession(code).catch((error: unknown) => session.end(friendlyError(error)));
     return session;
   }
@@ -52,7 +73,38 @@ export class HelperSession {
   }
 
   disconnect(): void {
+    this.sendInput({ t: 'release' });
+    this.sendPeer({ t: 'end' });
     this.end('You disconnected.');
+  }
+
+  /** Pointer moves go on the unordered channel: a lost one is overtaken by the next. */
+  sendPointer(x: number, y: number): void {
+    if (this.pointerChannel?.readyState === 'open')
+      this.pointerChannel.send(encodePointerMove(x, y));
+  }
+
+  sendInput(event: InputEvent): void {
+    this.sendPeer(event);
+  }
+
+  private sendPeer(message: PeerMessage): void {
+    if (this.controlChannel?.readyState === 'open') {
+      this.controlChannel.send(JSON.stringify(message));
+    }
+  }
+
+  private onPeerMessage(data: unknown): void {
+    const message = typeof data === 'string' ? parsePeerMessage(data) : null;
+    if (message?.t === 'end') {
+      this.end('They stopped sharing their screen.');
+    } else if (message?.t === 'control') {
+      this.control = {
+        available: message.available,
+        ...(message.reason ? { reason: message.reason } : {}),
+      };
+      if (this.state.name === 'live') this.set({ ...this.state, control: this.control });
+    }
   }
 
   private readonly onEvent = (event: SignalingEvent): void => {
@@ -88,10 +140,15 @@ export class HelperSession {
       if (this.state.name === 'live') this.set({ ...this.state, stream: this.stream });
     });
     pc.addEventListener('datachannel', ({ channel }) => {
-      if (channel.label !== 'ctl') return;
-      channel.addEventListener('message', ({ data }) => {
-        if (isEndMessage(data)) this.end('They stopped sharing their screen.');
-      });
+      if (channel.label === 'ctl') {
+        this.controlChannel = channel;
+        channel.addEventListener('message', ({ data }) => this.onPeerMessage(data));
+        channel.addEventListener('open', () =>
+          this.sendPeer({ t: 'hello', machine: this.machine }),
+        );
+      } else if (channel.label === 'ptr') {
+        this.pointerChannel = channel;
+      }
     });
     pc.addEventListener('icecandidate', ({ candidate }) => {
       if (candidate) {
@@ -136,13 +193,13 @@ export class HelperSession {
       clearTimeout(this.graceTimer);
       this.graceTimer = undefined;
       this.wasLive = true;
-      this.set({ name: 'live', reconnecting: false, stream: this.stream });
+      this.set({ name: 'live', reconnecting: false, stream: this.stream, control: this.control });
     } else if (state === 'disconnected' || state === 'failed') {
       if (!this.wasLive) {
         if (state === 'failed') this.end('Could not connect to their computer. Try again.');
         return;
       }
-      this.set({ name: 'live', reconnecting: true, stream: this.stream });
+      this.set({ name: 'live', reconnecting: true, stream: this.stream, control: this.control });
       this.graceTimer ??= setTimeout(
         () => this.end('The connection was lost.'),
         RECONNECT_GRACE_MS,
@@ -155,23 +212,15 @@ export class HelperSession {
     clearTimeout(this.graceTimer);
     this.stopListening();
     void window.helperApi.leaveSession();
-    this.pc?.close();
+    const pc = this.pc;
+    // Let a last release or goodbye message leave before the connection is torn down.
+    if (pc) setTimeout(() => pc.close(), 200);
     this.set({ name: 'ended', message, wasLive: this.wasLive });
   }
 
   private set(state: HelperState): void {
     this.state = state;
     for (const listener of this.listeners) listener();
-  }
-}
-
-function isEndMessage(data: unknown): boolean {
-  if (typeof data !== 'string') return false;
-  try {
-    const message: unknown = JSON.parse(data);
-    return typeof message === 'object' && message !== null && 't' in message && message.t === 'end';
-  } catch {
-    return false;
   }
 }
 

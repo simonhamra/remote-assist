@@ -13,6 +13,8 @@ export interface AppConfig {
   fakeScreen: boolean;
   /** RA_FORCE_RELAY=1: only connect through the TURN relay (to test it). */
   forceRelay: boolean;
+  /** This computer, as the host's `hello` check sees it. */
+  machine: string;
 }
 
 /** A rectangle in 0–1 coordinates relative to the primary display. */

@@ -27,8 +27,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npm run check
+      # Build first: on macOS this compiles the input agent, which its tests need.
       - run: npm run build
+      - run: npm run check
 
   e2e:
     # The most expensive job: runs after merges to main, not on every pull request update.

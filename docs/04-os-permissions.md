@@ -9,7 +9,7 @@ Remote control touches the most protected parts of an operating system. These pe
 | Capability | Permission (System Settings → Privacy & Security) | Needed? | Notes |
 |---|---|---|---|
 | See the screen | **Screen & System Audio Recording** | **Yes** | First capture shows a system dialog. She has to switch the app on in Settings, and the app must be **relaunched** before the grant takes effect. |
-| Move mouse / type | **Accessibility** | **Yes**, for control | Needed to post synthetic events (`CGEventPost`). The prompt comes from `AXIsProcessTrustedWithOptions`, and it is a one-time switch. |
+| Move mouse / type | **Accessibility** | **Yes**, for control | Needed to post synthetic events (`CGEventPost`). Built in Phase 3: once a session is live, the host window explains what it's for and offers **Open System Settings**, which shows macOS's own prompt and opens the pane. The grant takes effect immediately, without a restart, and the app re-checks when its window regains focus. The helper sees "They need to allow mouse and keyboard control" until then. Granted to the app that runs the input agent (in development: Terminal). |
 | Local network | **Local Network** (macOS 15+) | **Test it** | macOS 15 prompts non-Apple apps that contact devices on the LAN. WebRTC's local address probing *may* trigger it. Check early on a clean Mac. If it appears, include it in setup (allowing it is harmless) or limit ICE to server-reflexive and relay candidates. |
 | Voice chat | **Microphone** | Only if voice is built | Leave out of the MVP to avoid the prompt |
 | Start at login | Login Items | Recommended | No approval is needed, but macOS 13+ shows a "Background item added" notification once |

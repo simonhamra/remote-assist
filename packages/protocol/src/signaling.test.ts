@@ -5,7 +5,7 @@ import {
   normalizeSessionCode,
   parseClientMessage,
   parseServerMessage,
-} from './index';
+} from './signaling.ts';
 
 describe('parseClientMessage', () => {
   it('accepts well-formed messages', () => {

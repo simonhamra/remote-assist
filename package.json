@@ -17,7 +17,7 @@
     "dev:server": "npm run dev -w @remote-assist/server",
     "dev:host": "npm run dev -w @remote-assist/host",
     "dev:helper": "npm run dev -w @remote-assist/helper",
-    "build": "npm run build -w @remote-assist/host -w @remote-assist/helper",
+    "build": "npm run build -w @remote-assist/native-input && npm run build -w @remote-assist/host -w @remote-assist/helper",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -8,3 +8,6 @@ playwright-report/
 
 # Server secrets
 infra/.env
+
+# Built native helpers
+packages/native-input/bin/

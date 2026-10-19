@@ -2,7 +2,7 @@
 
 **Working name.** This is a lightweight remote-support app for helping a family member, starting with Grandma. It should feel like sitting next to her, and she always stays in control.
 
-> **Status:** Phases 0–2 are built for macOS. The host shares its screen with the helper over WebRTC. A small signaling server matches them with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). There's no remote control or consent screen yet (Phases 3–4). See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
+> **Status:** Phases 0–3 are built for macOS. The host shares its screen with the helper over WebRTC, and the helper can use its mouse and keyboard. A small signaling server matches them with an 8-digit code, and a TURN relay covers networks where a direct connection fails. Everything is tested locally; the server isn't deployed yet ([infra/README.md](infra/README.md)). There's no consent screen or pause yet (Phase 4), so these are testing builds only. See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
 
 ## The idea in one picture
 
@@ -47,14 +47,14 @@ After a one-time setup, the session itself raises **no OS permission prompts**. 
 ## Recommended stack (summary)
 
 - **Both apps:** Electron + TypeScript + React. Chromium supplies screen capture, hardware video encoding and the full WebRTC stack.
-- **Input injection:** a small Rust native module (napi-rs + [`enigo`](https://github.com/enigo-rs/enigo)) that runs inside the host app.
+- **Input injection:** a small Swift program (Quartz Event Services) that the host app runs in the background and feeds validated commands. It's macOS only for now; a Windows equivalent can speak the same line-based protocol.
 - **Transport:** WebRTC peer-to-peer, with H.264 video and two data channels for input. Media is encrypted end to end with DTLS-SRTP.
 - **Server:** Node.js + `ws` WebSocket signaling (TypeScript run directly by Node) and coturn for TURN, behind Caddy for automatic TLS. Docker Compose runs it on one small VPS. SQLite arrives once there's something to keep (session history, pairings).
 - **Identity:** an Ed25519 key per device, created on first launch and stored with the OS keychain. There are no passwords. Trust comes from a one-time pairing with a code and confirmation words.
 
 ## Run it
 
-Requires macOS 13 or later and Node.js 24 (see `.nvmrc`).
+Requires macOS 13 or later, Node.js 24 (see `.nvmrc`), and Xcode's Command Line Tools (for `swiftc`, which builds the input agent).
 
 ```bash
 npm install
@@ -71,7 +71,13 @@ The end-to-end tests start the signaling server and open both apps for a few sec
 3. The host shows an 8-digit number. Type it into the helper and click **Connect**.
 4. In the helper, click **Latency probe**. A small black-and-white strip appears at the bottom-left of your main display. The helper reads it back from the video and shows glass-to-glass latency in the stats overlay (⌘⇧S toggles the overlay).
 
+On one Mac, mouse and keyboard control switches itself off: the helper would only be controlling its own screen. Try control between two Macs instead (below).
+
 **Between two Macs on the same network:** on the Mac that runs the server, start it with `HOST=0.0.0.0 npm run dev:server` so the other Mac can reach it. On both Macs, start the app with `RA_SIGNALING_URL=ws://<that Mac's IP>:8787/ws` in front of the command, for example `RA_SIGNALING_URL=ws://192.168.1.20:8787/ws npm run dev:helper`. macOS 15+ may ask for **Local Network** access the first time. That prompt is expected, and the plan says to test for it.
+
+To control the host Mac, its app needs **Accessibility** permission. Once connected, the host window shows **Open System Settings**; switch on the app listed there (in development, Terminal again). It takes effect straight away, with no restart. In the helper, **Control** in the toolbar turns control on and off. The **⌘ Tab**, **⌘ Space** and **⌥⌘ Esc** buttons send the shortcuts macOS keeps for itself. While you're controlling, every key goes to the other Mac, including ⌘W and ⌘Q. Use **Disconnect** to stop.
+
+Things to check by hand on a real Mac, since the tests can't post real events: scrolling goes the expected way, double-clicks open things, and on the host keyboard layout "Crème brûlée" comes out as typed.
 
 **Across the internet:** deploy the server first ([infra/README.md](infra/README.md)), then use `RA_SIGNALING_URL=wss://your-domain/ws`.
 

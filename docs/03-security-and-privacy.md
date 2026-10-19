@@ -23,9 +23,18 @@
 | **Revocation** | Grandma: *People who can help me → Remove*. You: remove from the helper app. Either action deletes the pinned key on that device and the relationship on the server. |
 | **TURN credentials** | Time-limited HMAC credentials (coturn `use-auth-secret`) issued per session, expiring with the session cap |
 
-### Interim state after Phase 2
+### Interim state after Phase 3
 
-Until consent (Phase 4) and pairing (Phase 5) land, **the 8-digit code is the only protection**. Anyone who types a valid code within its 10 minutes sees the screen. Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Still, use builds from this stage only for testing, not with Grandma.
+Until consent (Phase 4) and pairing (Phase 5) land, **the 8-digit code is the only protection**. Anyone who types a valid code within its 10 minutes sees the screen and, once Accessibility is allowed, **can use the mouse and keyboard**. Codes are random, single use and rate-limited, the server drops browser connections, and its logs contain no IPs or codes. Still, use builds from this stage only for testing, not with Grandma.
+
+Already in place on the input side:
+- the input gate runs in the host's main process, and the helper can't bypass it;
+- it never clicks or types into the host app's own windows;
+- keys come from a fixed table;
+- events are rate-limited;
+- everything is released on disconnect;
+- control turns itself off when both apps run on the same computer;
+- the agent's events are tagged, and the host's own mouse and keyboard keep working while the helper is in control.
 
 ## Encryption
 

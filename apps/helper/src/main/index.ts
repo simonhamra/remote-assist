@@ -1,4 +1,9 @@
-import { lockDown, registerSignalingBridge, trustedHandler } from '@remote-assist/desktop/main';
+import {
+  lockDown,
+  machineId,
+  registerSignalingBridge,
+  trustedHandler,
+} from '@remote-assist/desktop/main';
 import { app, BrowserWindow, screen, session } from 'electron';
 import { join } from 'node:path';
 import { Channels, type AppConfig, type ProbeRect } from '../shared/api';
@@ -6,6 +11,7 @@ import { Channels, type AppConfig, type ProbeRect } from '../shared/api';
 const config: AppConfig = {
   fakeScreen: process.env.RA_FAKE_SCREEN === '1',
   forceRelay: process.env.RA_FORCE_RELAY === '1',
+  machine: machineId(),
 };
 const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
 

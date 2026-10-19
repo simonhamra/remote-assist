@@ -226,6 +226,15 @@ textarea {
   flex: 1;
 }
 
+.control-note {
+  color: #f0b65c;
+  font-size: 0.85rem;
+}
+
+.toolbar button:disabled {
+  opacity: 0.45;
+}
+
 .stage {
   position: relative;
   flex: 1;

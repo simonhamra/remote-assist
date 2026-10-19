@@ -1,4 +1,12 @@
-import type { IceServer, SignalData, SignalingEvent } from '@remote-assist/protocol';
+import {
+  decodePointerMove,
+  isInputEvent,
+  parsePeerMessage,
+  type IceServer,
+  type PeerMessage,
+  type SignalData,
+  type SignalingEvent,
+} from '@remote-assist/protocol';
 import {
   candidateInit,
   createPeerConnection,
@@ -9,12 +17,13 @@ import {
   tuneSender,
   type ScreenSource,
 } from '@remote-assist/rtc';
+import type { ControlStatus } from '../../shared/api';
 
 export type HostState =
   | { name: 'contacting' }
   | { name: 'waiting'; code: string }
   | { name: 'connecting' }
-  | { name: 'live'; reconnecting: boolean }
+  | { name: 'live'; reconnecting: boolean; control: ControlStatus | null }
   | { name: 'ended'; message: string };
 
 /** How long a dropped connection may take to come back before the session ends. */
@@ -35,6 +44,9 @@ export class HostSession {
   private pc: RTCPeerConnection | null = null;
   private sender: RTCRtpSender | null = null;
   private control: RTCDataChannel | null = null;
+  private controlStatus: ControlStatus | null = null;
+  /** From the helper's `hello`; control stays off until it has arrived. */
+  private helperMachine: string | null = null;
   private tuned = false;
   private pendingCandidates: RTCIceCandidateInit[] = [];
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
@@ -72,6 +84,16 @@ export class HostSession {
 
   stop(): void {
     this.end('You stopped sharing your screen.');
+  }
+
+  /** Turns the helper's mouse and keyboard on, and tells the helper whether that works. */
+  async refreshControl(): Promise<void> {
+    if (this.state.name !== 'live' || !this.helperMachine) return;
+    const status = await window.hostApi.setRemoteControl(true, this.helperMachine);
+    if (this.state.name !== 'live') return;
+    this.controlStatus = status;
+    this.set({ ...this.state, control: status });
+    this.sendPeer({ t: 'control', ...status });
   }
 
   private readonly onEvent = (event: SignalingEvent): void => {
@@ -113,7 +135,19 @@ export class HostSession {
     });
     preferVideoCodecs(transceiver, 'send');
     this.sender = transceiver.sender;
-    this.control = pc.createDataChannel('ctl', { ordered: true });
+    const control = pc.createDataChannel('ctl', { ordered: true });
+    this.control = control;
+    control.addEventListener('message', ({ data }) => this.onPeerMessage(data));
+    control.addEventListener('open', () => {
+      if (this.controlStatus) this.sendPeer({ t: 'control', ...this.controlStatus });
+    });
+    // Pointer moves: unordered and never retransmitted, so a late one can't hold up newer ones.
+    const pointer = pc.createDataChannel('ptr', { ordered: false, maxRetransmits: 0 });
+    pointer.binaryType = 'arraybuffer';
+    pointer.addEventListener('message', ({ data }) => {
+      const move = decodePointerMove(data);
+      if (move && this.state.name === 'live') window.hostApi.sendInput({ t: 'move', ...move });
+    });
 
     pc.addEventListener('icecandidate', ({ candidate }) => {
       if (candidate) {
@@ -124,6 +158,24 @@ export class HostSession {
     pc.addEventListener('negotiationneeded', () => void this.offer());
     pc.addEventListener('connectionstatechange', () => this.onConnectionState());
     this.set({ name: 'connecting' });
+  }
+
+  private onPeerMessage(data: unknown): void {
+    if (typeof data !== 'string') return;
+    const message = parsePeerMessage(data);
+    if (!message) return;
+    if (message.t === 'end') {
+      this.end('Your helper disconnected.');
+    } else if (message.t === 'hello') {
+      this.helperMachine = message.machine;
+      void this.refreshControl();
+    } else if (isInputEvent(message) && this.state.name === 'live') {
+      window.hostApi.sendInput(message);
+    }
+  }
+
+  private sendPeer(message: PeerMessage): void {
+    if (this.control?.readyState === 'open') this.control.send(JSON.stringify(message));
   }
 
   private async offer(): Promise<void> {
@@ -167,7 +219,9 @@ export class HostSession {
       clearTimeout(this.restartTimer);
       clearTimeout(this.graceTimer);
       this.graceTimer = undefined;
-      this.set({ name: 'live', reconnecting: false });
+      const firstTime = this.state.name !== 'live';
+      this.set({ name: 'live', reconnecting: false, control: this.controlStatus });
+      if (firstTime) void this.refreshControl();
     } else if (state === 'disconnected' || state === 'failed') {
       if (this.state.name !== 'live') {
         if (state === 'failed') {
@@ -177,7 +231,9 @@ export class HostSession {
         }
         return;
       }
-      this.set({ name: 'live', reconnecting: true });
+      // Nothing may stay pressed while the helper can't see what it is doing.
+      window.hostApi.sendInput({ t: 'release' });
+      this.set({ name: 'live', reconnecting: true, control: this.controlStatus });
       // After a network change (Wi-Fi to hotspot) only fresh ICE candidates can reconnect.
       clearTimeout(this.restartTimer);
       this.restartTimer = setTimeout(
@@ -195,7 +251,8 @@ export class HostSession {
     if (this.state.name === 'ended') return;
     clearTimeout(this.restartTimer);
     clearTimeout(this.graceTimer);
-    if (this.control?.readyState === 'open') this.control.send(JSON.stringify({ t: 'end' }));
+    this.sendPeer({ t: 'end' });
+    void window.hostApi.setRemoteControl(false);
     this.stopListening();
     void window.hostApi.leaveSession();
     this.source.stop();

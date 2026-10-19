@@ -55,15 +55,19 @@ The phases are ordered so that **the riskiest unknowns (latency, injection, perm
 
 ## Phase 3: Remote input
 
-- [ ] `packages/native-input`: napi-rs wrapper around `enigo`, with `moveAbs`, `button`, `scroll`, `key`, `text` and `releaseAll`
-- [ ] `packages/protocol`: binary pointer codec, zod schemas for control messages, fuzz tests
-- [ ] Coordinate mapping: normalized → display bounds → DPI scale. Multi-display aware, with a display switcher.
-- [ ] Keyboard: physical `code` → virtual key for shortcuts, unicode `text` for printable characters, an optional Cmd↔Ctrl mapping, and toolbar combos
-- [ ] Helper: capture pointer/wheel/keys on the video. `before-input-event` stops local shortcuts. The local cursor is drawn.
-- [ ] Input gate: state check, rate limits, clamps, and **releaseAll on pause or disconnect**
-- [ ] (Optional shortcut: prototype with `@nut-tree-fork/nut-js` first, then swap in the Rust module)
+- [x] `packages/native-input`: a **Swift agent** (Quartz Event Services) run as a child process, reading JSON lines: move, button, scroll, key, text, release. It turns moves into drags while a button is held, counts double-clicks, keeps modifier flags, looks shortcut characters up on the current keyboard layout, tags its events, never blocks the local mouse and keyboard, and releases everything when its input closes. A `--dry-run` mode prints events instead, for tests. (Swift instead of Rust + enigo: it comes with the Command Line Tools and needs no extra toolchain.)
+- [x] `packages/protocol`: binary pointer codec, zod schemas for input and control messages, and a `hello` so the host can tell when the helper is on the same computer
+- [x] Coordinate mapping: normalized → the captured display's bounds in points (works for any display, including ones left of or above the main one)
+- [x] Keyboard: typed characters as text; shortcuts, modifiers and special keys as physical codes with the character attached for layout-aware shortcuts; toolbar buttons for ⌘Tab, ⌘Space and ⌥⌘Esc
+- [x] Helper: pointer, wheel and key capture over the video (letterbox-aware, coalesced to one move and one scroll per frame, pointer capture for drags), a Control toggle, and release on blur and disconnect
+- [x] Input gate (host main process): control on only while live and permitted, own windows protected, key table, 400 events/s cap, release on disconnect, control off, or renderer loss
+- [x] Accessibility permission flow on the host, with status shown on both sides
+- [ ] **Try it between two real Macs** (you): scroll direction, double-click, typing "Crème brûlée" on the host's layout, ⌘C/⌘V, and dragging a file
+- Later: a display switcher for multi-monitor hosts (control follows the captured display already), and a Cmd↔Ctrl mapping for Windows hosts.
 
 **Exit:** from your desktop you can open apps, type "Crème brûlée" correctly on her layout, right-click, drag a file, scroll a web page, and use Cmd/Ctrl+C/V. Killing the helper mid-drag leaves no stuck button or key.
+
+**Results so far:** the end-to-end test drives the whole path with the agent in dry-run mode. A click at 10% / 10% of the picture lands at 10% / 10% of the host's display; drags arrive as drag events; typing arrives as text; ⌘A arrives with the Command flag on the right key for the host's layout (AZERTY here); ⌘W reaches the other Mac without closing the helper window; and Shift held during Disconnect is released on the host. Writing the test found a bug: key-ups were being lost after a cancelled key-down, which would have left ⌘ and Shift stuck. It's fixed, and the test now checks for it. Real event posting still needs the hands-on check above.
 
 ## Phase 4: Consent and session safety
 

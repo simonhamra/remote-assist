@@ -30,7 +30,7 @@ remote-assist/
 │  ├─ desktop/         Electron main-process helpers: IPC checks, signaling bridge
 │  ├─ rtc/             Shared RTCPeerConnection setup, tuning, stats, latency probe
 │  ├─ crypto/          (Phase 5) Device identity, signing/verification, confirmation words
-│  └─ native-input/    (Phase 3) Rust (napi-rs + enigo) mouse/keyboard injector
+│  └─ native-input/    macOS input agent (Swift, Quartz events) + its Node wrapper
 ├─ server/             Signaling: session codes, relay, TURN credentials (ws + zod)
 └─ infra/              docker-compose.yml, Caddyfile, turnserver.conf
 ```
@@ -44,7 +44,7 @@ remote-assist/
 | **Session bar** | A small, always-on-top window on every desktop/Space and over full-screen apps, with **Pause** and **Stop**. A thin coloured border overlay marks the shared screen. |
 | **Capture** | `getDisplayMedia` through Electron's `setDisplayMediaRequestHandler`, so no Chromium picker appears. One display at a time, capped at 30 fps with resolution limited to ~1080p. |
 | **Input gate** | Checks every incoming event: is the session active and not paused, is the event well-formed, is the target outside the host app's own windows? Only then does it call the injector. On pause or disconnect it releases all held keys and buttons. |
-| **Injector** | Native module that maps normalized coordinates to the right display and DPI, and maps physical key codes to the OS's virtual keys. |
+| **Injector** | A small Swift agent, run as a child process, that posts Quartz events. The gate first maps normalized coordinates onto the shared display and physical key codes onto macOS key codes. The agent turns moves into drags while a button is held, counts double-clicks, keeps modifier flags, finds shortcut characters on the host's keyboard layout, and lets go of everything when its input closes. |
 | **Setup assistant** | First-run flow: pairing, then the OS permissions walkthrough, then launch-at-login. |
 | **Tray / menu-bar icon** | Shows status at a glance and opens a simple window: "Ask Alex for help", "People who can help me", "Session history". |
 
@@ -54,7 +54,7 @@ remote-assist/
 |---|---|
 | **People list** | Paired hosts with online status, and a **Help** button for each. |
 | **Remote view** | A `<video>` element plus input capture on top of it. Pointer Lock is not used: the local cursor is drawn immediately to keep it responsive. |
-| **Input capture** | Pointer, wheel and keyboard events, normalized and sent over data channels. `before-input-event` stops shortcuts such as Cmd+W from acting on the helper app itself. A toolbar sends combos the OS keeps for itself (Cmd+Tab, Cmd+Space, Ctrl+Alt+Del is not possible). |
+| **Input capture** | Pointer, wheel and keyboard events over the video, normalized and sent over data channels. Keys are captured and cancelled in the window, so menu shortcuts such as ⌘W act on the remote computer, not the helper app. Toolbar buttons send the combos macOS keeps for itself (⌘Tab, ⌘Space, ⌥⌘Esc). Ctrl+Alt+Del isn't possible. |
 | **Session gate** | Optional Touch ID or OS password before starting a session (`systemPreferences.promptTouchID`). |
 
 ### Server (yours)
@@ -136,26 +136,28 @@ There are two channels on one RTCPeerConnection:
 
 **Pointer move (binary, 5 bytes):** `u8 type=1 · u16 x · u16 y`, with x and y normalized to 0–65535 across the shared display. This is independent of resolution and DPI.
 
-**Control messages (JSON):**
+**Control messages (JSON, `packages/protocol/src/input.ts`):**
 
 ```ts
 // helper → host
-{ t: "btn",   b: "left"|"right"|"middle", down: boolean }
-{ t: "wheel", dx: number, dy: number }                  // pixels, clamped
-{ t: "key",   code: "KeyA", key: "a", down: boolean }   // KeyboardEvent.code = physical key
-{ t: "text",  s: "é" }                                  // composed/IME text, injected as unicode
-{ t: "display.select", id: string }
+{ t: "hello",  machine: "<16 hex>" }                     // first message: which computer
+{ t: "button", button: "left"|"right"|"middle", down: boolean, x, y }  // carries its position
+{ t: "wheel",  dx: number, dy: number, x, y }            // pixels, clamped to ±4000
+{ t: "key",    code: "KeyA", down: boolean, repeat?: boolean, char?: "a" }
+{ t: "text",   text: "é" }                               // typed characters, up to 64
+{ t: "release" }                                         // let go of everything
 { t: "end" }
 
 // host → helper
-{ t: "state",    s: "active"|"paused" }
-{ t: "displays", list: [{ id, name, w, h, primary }] }
-{ t: "notice",   msg: "Grandma paused the session" }
+{ t: "control", available: boolean, reason?: "permission"|"unsupported"|"same-computer" }
+{ t: "end" }
 ```
 
-**Keyboard strategy:** shortcuts and special keys go as **physical codes** (`code`), so Ctrl+C works on any layout. Printable text the helper types goes as **unicode text**, so the host's layout (AZERTY, QWERTZ, ...) does not scramble letters. An optional toggle maps Cmd to Ctrl when a Mac helper controls a Windows host.
+Clicks and scrolls carry their own position, so they land where the helper pointed even if a pointer move on the unreliable channel was lost.
 
-**Validation:** the host rejects unknown types, out-of-range values, and anything that arrives outside `active`. Wheel deltas are clamped and key-event rates are limited.
+**Keyboard strategy:** typed characters (no ⌘ or Ctrl held) go as **text**, so "é" stays "é" whatever the host's layout. Shortcuts, modifiers and special keys go as **physical codes** (`code`). Shortcuts also carry the **character** the key typed on the helper's keyboard, and the host's agent looks that character up on its own layout. That way ⌘A stays ⌘A between a QWERTY helper and an AZERTY host, instead of becoming ⌘Q. Keys are captured in the helper window and cancelled there, which also keeps the helper's own menu shortcuts (⌘W, ⌘Q) from firing. (Cancelling them earlier, in Electron's `before-input-event`, makes Chromium drop the matching key-ups, which would leave keys held on the host.) A Cmd↔Ctrl toggle for Windows hosts comes with Windows support.
+
+**Validation:** messages are checked against zod schemas twice: in the host renderer, and again in the main process before the input gate. The gate drops everything unless control is on. It never clicks, scrolls or types into the host app's own windows, accepts only keys in a fixed table (no power or media keys), and caps events at 400 per second. It releases everything on disconnect, when control is turned off, and if the window or renderer goes away.
 
 ## Latency design
 

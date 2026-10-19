@@ -6,13 +6,13 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 
 | Layer | Choice | Why |
 |---|---|---|
-| Language | **TypeScript** everywhere, plus a **small Rust** module | One language across apps, server and protocol. Rust only for native input. |
+| Language | **TypeScript** everywhere, plus a **small Swift** program | One language across apps, server and protocol. Swift only for injecting input on macOS. |
 | Monorepo | **npm workspaces** | Shared packages (`rtc` now, `protocol`/`crypto` later) with one lockfile. Built into Node, so nothing extra to install, and Electron packaging works with npm's flat `node_modules`. |
 | Desktop apps | **Electron 44** + **React 19** + **electron-vite 6** (Vite 8) | Chromium ships getDisplayMedia, hardware encode/decode, WebRTC, ICE/TURN, DTLS-SRTP, and the same behaviour on macOS and Windows. Electron 44 needs **macOS 13 or later**. |
 | Screen capture | `desktopCapturer` + `session.setDisplayMediaRequestHandler` | No browser picker, and Chromium uses ScreenCaptureKit (macOS) / Windows Graphics Capture |
 | Video transport | **WebRTC**, H.264 hardware first, VP8 fallback | Congestion control, packet-loss recovery and encryption built in |
 | Input transport | **RTCDataChannel** (unreliable for pointer, reliable for the rest) | Same encrypted connection as the video, no extra ports |
-| Input injection | **Rust + [napi-rs](https://napi.rs) + [`enigo`](https://github.com/enigo-rs/enigo)** (MIT) | Maintained, cross-platform (CGEvent / SendInput / X11+libei), small surface you control |
+| Input injection | **Swift agent using Quartz Event Services** (`packages/native-input`), run by the host app as a child process that reads JSON lines | `swiftc` comes with Xcode's Command Line Tools, so there's no extra toolchain. It's a separate process, so a crash can't take the app down, and closing its input releases every held key. It also gives direct control of drag events, click counts, modifier flags and layout-aware shortcuts. macOS only; Windows gets its own agent with the same protocol. |
 | Signaling | **Node.js 24 LTS + `ws` + zod**, TypeScript run directly by Node (type stripping) | About 300 lines, easy to audit, no build step. Plain `node:http` is enough for one WebSocket path and a health check, so there's no web framework. |
 | Database | **SQLite**, added with session history and pairing (Phases 4–5) | A single file of public keys and metadata, with trivial backups. Phase 2 keeps nothing, so it has no database. |
 | NAT traversal | **coturn** (STUN + TURN, TLS on 443) with ephemeral REST-API credentials | Works through hotel and corporate firewalls. Credentials expire. |
@@ -40,7 +40,8 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 | **Pure web app on Grandma's side** | Browsers can share a screen but **cannot inject input**, so remote control is impossible. (The *helper* side could become a web/PWA later.) |
 | **Flutter** | `flutter_webrtc` is fine, but capture and input still need native plugins on each OS, so it gains nothing over Electron here. |
 | **Custom QUIC/UDP media protocol** | Lower ceiling on latency, but you would rebuild congestion control, FEC, NAT traversal and encryption yourself. WebRTC already does all of this. |
-| **`@nut-tree/nut-js`** for input | The official prebuilt packages now require a paid license. The community fork `@nut-tree-fork/nut-js` (Apache-2.0) is fine for a **quick Phase 1 spike**, but `enigo` via napi-rs gives a long-term, fully owned path. |
+| **Rust + napi-rs + [`enigo`](https://github.com/enigo-rs/enigo)** for input | The original plan, and still a good cross-platform option. Set aside for macOS because it needs a Rust toolchain and per-architecture native builds for a few hundred lines that Swift handles directly. A candidate for the Windows agent. |
+| **`@nut-tree/nut-js`** for input | The official prebuilt packages now require a paid license. The community fork `@nut-tree-fork/nut-js` (Apache-2.0) would do for a quick spike. |
 | **`robotjs`** | Unmaintained, with fragile native builds. Avoid. |
 | **Fastify** for the server | Considered for Phase 2. Unnecessary for one WebSocket endpoint and a health check. Revisit if the server grows an HTTP API. |
 | **Firebase / Supabase Realtime for signaling** | Works, but a tiny server you own is easier to reason about for authentication and logging. |
