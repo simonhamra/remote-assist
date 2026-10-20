@@ -2,20 +2,17 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import { resolve } from 'node:path';
 import { contentSecurityPolicy } from '../../tooling/csp';
+import { bakedSignalingUrl } from '../../tooling/release';
 
-// Workspace packages are TypeScript sources: bundle them instead of loading them at runtime.
-// (Sandboxed preload scripts cannot load modules at all.)
-const externalizeDeps = {
-  exclude: [
-    '@remote-assist/crypto',
-    '@remote-assist/desktop',
-    '@remote-assist/native-input',
-    '@remote-assist/protocol',
-  ],
-};
+// Everything is bundled, workspace packages included, so the packaged app ships no
+// node_modules. (Sandboxed preload scripts cannot load modules at all.)
+const externalizeDeps = false;
 
 export default defineConfig({
-  main: { build: { externalizeDeps } },
+  main: {
+    define: { __SIGNALING_URL__: JSON.stringify(bakedSignalingUrl(process.env)) },
+    build: { externalizeDeps },
+  },
   preload: {
     build: {
       externalizeDeps,

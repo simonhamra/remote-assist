@@ -2,7 +2,7 @@
 
 **Working name.** This is a lightweight remote-support app for helping a family member, starting with Grandma. It should feel like sitting next to her, and she always stays in control.
 
-> **Status:** Phases 0–6 are built for macOS. The first time the app opens, it walks her through setup one step at a time: pairing, the two macOS permissions, starting with the computer, and a practice run. Afterwards it waits in the menu bar. You pair with her computer once, comparing three words. After that, you click **Help Grandma** and she sees a verified request with your name. Only if she says yes can you see her screen and use the mouse and keyboard. A floating bar with Pause and Stop stays on screen throughout. A small signaling server (with a TURN relay) connects the two, but it can't impersonate either side. Everything is tested locally, including against a tampering server; the server isn't deployed yet ([infra/README.md](infra/README.md)). Still to come before handing it to her: signed installers and updates (Phase 7). See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
+> **Status:** Phases 0–7 are built for macOS. The first time the app opens, it walks her through setup one step at a time: pairing, the two macOS permissions, starting with the computer, and a practice run. Afterwards it waits in the menu bar. You pair with her computer once, comparing three words. After that, you click **Help Grandma** and she sees a verified request with your name. Only if she says yes can you see her screen and use the mouse and keyboard. A floating bar with Pause and Stop stays on screen throughout. A small signaling server (with a TURN relay) connects the two, but it can't impersonate either side. Everything is tested locally, including against a tampering server; the server isn't deployed yet ([infra/README.md](infra/README.md)). Phase 7 adds signed installers and silent updates from your server. It is ready to run once you have an Apple Developer ID ([releases](docs/06-releases.md)). See [Run it](#run-it) and the [implementation plan](docs/05-implementation-plan.md).
 
 ## The idea in one picture
 
@@ -47,6 +47,7 @@ After a one-time setup, the session itself raises **no OS permission prompts**. 
 3. [Security & privacy](docs/03-security-and-privacy.md): threat model, authentication, consent model, data handling
 4. [OS permissions](docs/04-os-permissions.md): what each OS requires and how to keep prompts to a minimum without bypassing any
 5. [Implementation plan](docs/05-implementation-plan.md): phased steps with exit criteria, plus the post-MVP backlog
+6. [Releases and updates](docs/06-releases.md): signing, notarizing, publishing updates, and the first install on Grandma's Mac
 
 ## Recommended stack (summary)
 
@@ -64,6 +65,7 @@ Requires macOS 13 or later, Node.js 24 (see `.nvmrc`), and Xcode's Command Line 
 npm install
 npm run check      # typecheck, lint, format check, unit tests
 npm run e2e        # builds both apps and runs the end-to-end tests
+npm run package    # installable apps in apps/*/dist (signed ad hoc unless set up for release)
 ```
 
 The end-to-end tests start the signaling server and open both apps for a few seconds each. The apps share a synthetic **test screen** (`RA_FAKE_SCREEN=1`), so no Screen Recording permission is needed. One test connects directly, after first trying a wrong code. The other forces the connection through a local TURN relay. Both wait for video and measure latency.

@@ -107,7 +107,8 @@ App copy should reinforce this. The pairing screen says in large text: *"Only do
 | Stuck modifier keys after a crash or disconnect | The host releases all held keys and buttons on any disconnect or pause |
 | Malformed or malicious input messages | zod/binary validation, ranges clamped, rate limits, fuzz tests on the parser |
 | Electron renderer exploit | Sandbox, context isolation, CSP, fuses, no remote content |
-| Malicious update | Signed updates over HTTPS, signature verified before install |
+| Someone talks Grandma into starting the app with a test setting | The installed app ignores every development and test switch; the server address is fixed at build time |
+| Malicious update | Signed updates over HTTPS from your own server. macOS checks that the update is signed by the same developer before installing. |
 
 ## Data handling
 

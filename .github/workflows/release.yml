@@ -1,0 +1,74 @@
+name: Release
+
+# Builds the signed, notarized macOS apps. A tag such as v0.2.0 makes a draft GitHub release to
+# check on your own Mac before publishing the update (docs/06-releases.md). Starting it by hand
+# makes a test build, signed only if the secrets are set, kept as a workflow artifact.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Repository variables (Settings → Secrets and variables → Actions → Variables).
+      RA_SIGNALING_URL: ${{ vars.SIGNALING_URL }}
+      RA_UPDATE_URL: ${{ vars.UPDATE_URL }}
+      # Repository secrets. The certificate is the Developer ID Application .p12, base64-encoded.
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Check release settings
+        run: node --disable-warning=ExperimentalWarning tooling/check-release.ts
+      - run: npm run build
+      - run: npm run check
+      # Each app goes to its own update folder: <UPDATE_URL>/host and <UPDATE_URL>/helper.
+      - name: Package Remote Assist
+        run: npm run package -w @remote-assist/host
+        env:
+          RA_UPDATE_URL: ${{ vars.UPDATE_URL && format('{0}/host', vars.UPDATE_URL) }}
+      - name: Package Remote Assist Helper
+        run: npm run package -w @remote-assist/helper
+        env:
+          RA_UPDATE_URL: ${{ vars.UPDATE_URL && format('{0}/helper', vars.UPDATE_URL) }}
+      - name: Collect files
+        run: |
+          mkdir -p release/host release/helper
+          cp apps/host/dist/*.{dmg,zip,blockmap} release/host/
+          cp apps/helper/dist/*.{dmg,zip,blockmap} release/helper/
+          cp apps/host/dist/latest-mac.yml release/host/ 2>/dev/null || true
+          cp apps/helper/dist/latest-mac.yml release/helper/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-assist-${{ github.ref_name }}
+          path: release/
+          retention-days: 14
+      - name: Draft the GitHub release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Asset names must be unique, so the update files get the app's name.
+          cp release/host/latest-mac.yml release/host-latest-mac.yml
+          cp release/helper/latest-mac.yml release/helper-latest-mac.yml
+          gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" \
+            --notes "Install on your own Mac first, then publish the update: docs/06-releases.md" \
+            release/host/*.{dmg,zip,blockmap} release/helper/*.{dmg,zip,blockmap} \
+            release/host-latest-mac.yml release/helper-latest-mac.yml

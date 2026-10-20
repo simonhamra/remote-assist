@@ -8,23 +8,22 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "package": "electron-builder --config electron-builder.config.mjs --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit --composite false -p tsconfig.node.json && tsc --noEmit --composite false -p tsconfig.web.json"
   },
-  "dependencies": {
+  "devDependencies": {
     "@remote-assist/crypto": "*",
     "@remote-assist/desktop": "*",
     "@remote-assist/protocol": "*",
     "@remote-assist/rtc": "*",
-    "react": "^19.3.1",
-    "react-dom": "^19.3.1"
-  },
-  "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "electron": "^44.8.0",
     "electron-vite": "^6.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "vite": "^8.3.4"
   }
 }

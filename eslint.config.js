@@ -22,6 +22,8 @@ export default defineConfig([
       'apps/*/*.ts',
       'apps/*/src/{main,preload}/**/*.ts',
       'packages/*/scripts/**/*.mjs',
+      'tooling/**/*.mjs',
+      'apps/*/*.mjs',
     ],
     languageOptions: { globals: globals.node },
   },

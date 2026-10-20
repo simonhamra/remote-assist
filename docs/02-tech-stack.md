@@ -20,7 +20,7 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 | Hosting | One small VPS (~€5/mo, e.g. Hetzner/DigitalOcean) with **Docker Compose** | Signaling, TURN and TLS in one place. Screen-share traffic is about 1–4 Mbps per session. |
 | Crypto | **Ed25519** via Node's built-in `crypto`, in the main processes and on the server. Keys encrypted at rest with Electron **`safeStorage`** (Keychain / DPAPI). Pairing words from the BIP-39 English list (`@scure/bip39`, MIT). | Audited primitives, no extra crypto library, and private keys never leave the main process |
 | Packaging | **electron-builder** | DMG/ZIP for macOS, NSIS for Windows, auto-update feed |
-| Updates | **electron-updater**, signed, installed silently on next restart | Grandma never sees an "Update available?" dialog |
+| Updates | **electron-updater** from a folder on your own server, signed, installed silently on quit or at a quiet moment | Grandma never sees an "Update available?" dialog, and the private repository needs no token in the app |
 | Code signing | macOS **Developer ID + notarization**. Windows **Authenticode** (Microsoft Trusted Signing or an OV cert). | Required for Gatekeeper/SmartScreen, and on macOS it keeps permission grants across updates |
 | Testing | **Vitest** (units), **Playwright `_electron`** (e2e), a latency harness using `getStats()` | |
 
@@ -29,7 +29,8 @@ The guiding rule: **reuse the best-tested real-time media stack (Chromium's WebR
 - `contextIsolation: true`, `sandbox: true`, `nodeIntegration: false` in every renderer
 - A typed IPC allowlist through `contextBridge`. Renderers never touch keys or the injector directly.
 - A strict CSP, no remote content loaded into app windows, and `setWindowOpenHandler` denying everything
-- Electron **fuses**: disable `RunAsNode`, `EnableNodeCliInspectArguments` and `EnableNodeOptionsEnvironmentVariable`. Enable `OnlyLoadAppFromAsar` and `EnableEmbeddedAsarIntegrityValidation`.
+- Electron **fuses**: disable `RunAsNode`, `EnableNodeCliInspectArguments` and `EnableNodeOptionsEnvironmentVariable`. Enable `OnlyLoadAppFromAsar`, `EnableEmbeddedAsarIntegrityValidation` and `EnableCookieEncryption`. (Set at packaging since Phase 7.)
+- The installed app ignores development and test switches (environment variables, the dev page server).
 
 ## Alternatives considered
 

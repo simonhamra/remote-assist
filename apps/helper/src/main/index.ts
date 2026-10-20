@@ -2,9 +2,11 @@ import {
   ServerBridge,
   Settings,
   TrustStore,
+  devEnv,
   loadIdentity,
   lockDown,
   machineId,
+  startAutoUpdates,
   trustedHandler,
 } from '@remote-assist/desktop/main';
 import type { TrustedPeer } from '@remote-assist/desktop/channels';
@@ -12,17 +14,18 @@ import { app, BrowserWindow, safeStorage, screen, session, systemPreferences } f
 import { join } from 'node:path';
 import { Channels, type AppConfig, type ProbeRect } from '../shared/api';
 
-// Test and development switches, as in the host app.
-if (process.env.RA_USER_DATA_DIR) app.setPath('userData', process.env.RA_USER_DATA_DIR);
-if (process.env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
+// Test and development switches, as in the host app (ignored by the installed app).
+const env = devEnv();
+if (env.RA_USER_DATA_DIR) app.setPath('userData', env.RA_USER_DATA_DIR);
+if (env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
 
 const config: AppConfig = {
-  fakeScreen: process.env.RA_FAKE_SCREEN === '1',
-  forceRelay: process.env.RA_FORCE_RELAY === '1',
-  allowCodeSessions: process.env.RA_ALLOW_CODE_SESSIONS === '1',
+  fakeScreen: env.RA_FAKE_SCREEN === '1',
+  forceRelay: env.RA_FORCE_RELAY === '1',
+  allowCodeSessions: env.RA_ALLOW_CODE_SESSIONS === '1',
   machine: machineId(),
 };
-const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
+const signalingUrl = env.RA_SIGNALING_URL ?? __SIGNALING_URL__;
 
 // See the host: real LAN addresses instead of mDNS names for a peer you chose to connect to.
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
@@ -43,7 +46,7 @@ const sandboxed = {
 } as const;
 
 function loadPage(win: BrowserWindow, page: 'index' | 'probe'): void {
-  const devServer = process.env.ELECTRON_RENDERER_URL;
+  const devServer = env.ELECTRON_RENDERER_URL;
   if (devServer) void win.loadURL(`${devServer}/${page}.html`);
   else void win.loadFile(join(__dirname, `../renderer/${page}.html`));
 }
@@ -122,7 +125,7 @@ function registerIpc(): void {
  * has it. (RA_TEST_NO_TOUCH_ID skips it in automated tests.)
  */
 async function confirmItsYou(peer: TrustedPeer): Promise<boolean> {
-  if (process.env.RA_TEST_NO_TOUCH_ID === '1' || !systemPreferences.canPromptTouchID()) return true;
+  if (env.RA_TEST_NO_TOUCH_ID === '1' || !systemPreferences.canPromptTouchID()) return true;
   try {
     await systemPreferences.promptTouchID(`help ${peer.name}`);
     return true;
@@ -145,7 +148,7 @@ function startServerBridge(): ServerBridge {
     }),
     trust: new TrustStore(join(data, 'trusted-computers.json')),
     settings: new Settings(join(data, 'settings.json')),
-    defaultName: process.env.RA_DEVICE_NAME ?? 'Helper',
+    defaultName: env.RA_DEVICE_NAME ?? 'Helper',
     handle,
     toWindow: (channel, payload) => mainWindow?.webContents.send(channel, payload),
     allowCodeSessions: config.allowCodeSessions,
@@ -166,6 +169,8 @@ void app.whenReady().then(() => {
   registerIpc();
   bridge = startServerBridge();
   mainWindow = createMainWindow();
+  // Downloaded in the background, installed when you quit.
+  startAutoUpdates();
   mainWindow.on('closed', () => {
     mainWindow = null;
     hideProbe();

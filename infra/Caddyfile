@@ -1,7 +1,20 @@
 # Caddy gets and renews the HTTPS certificate for $DOMAIN automatically.
 {$DOMAIN} {
-	# The signaling WebSocket and its health check; nothing else is served.
+	# The signaling WebSocket and its health check.
 	@signaling path /ws /healthz
-	reverse_proxy @signaling signaling:8787
-	respond 404
+	handle @signaling {
+		reverse_proxy signaling:8787
+	}
+
+	# App updates and installers: infra/updates/host and infra/updates/helper
+	# (filled by infra/publish-update.sh). Files only, no directory listings.
+	handle_path /updates/* {
+		root * /srv/updates
+		file_server
+	}
+
+	# Nothing else is served.
+	handle {
+		respond 404
+	}
 }

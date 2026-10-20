@@ -2,10 +2,13 @@ import {
   ServerBridge,
   Settings,
   TrustStore,
+  devEnv,
   isMainFrame,
+  isQuietMoment,
   loadIdentity,
   lockDown,
   machineId,
+  startAutoUpdates,
   trustedHandler,
   trustedListener,
 } from '@remote-assist/desktop/main';
@@ -29,6 +32,7 @@ import {
   type DisplayMediaRequestHandlerHandlerRequest,
   type Streams,
 } from 'electron';
+import { existsSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -46,22 +50,23 @@ import { SessionChrome } from './sessionChrome';
 import { SetupStore, isSetupStep } from './setup';
 import { trayIconBitmap, trayMenu, trayStatus, TRAY_ICON_PIXELS } from './tray';
 
-// Test and development switches. RA_USER_DATA_DIR gives each test instance its own data, and
-// RA_TEST_MOCK_KEYCHAIN keeps tests away from the real macOS Keychain.
-if (process.env.RA_USER_DATA_DIR) app.setPath('userData', process.env.RA_USER_DATA_DIR);
-if (process.env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
+// Test and development switches, ignored by the installed app. RA_USER_DATA_DIR gives each test
+// instance its own data, and RA_TEST_MOCK_KEYCHAIN keeps tests away from the real Keychain.
+const env = devEnv();
+if (env.RA_USER_DATA_DIR) app.setPath('userData', env.RA_USER_DATA_DIR);
+if (env.RA_TEST_MOCK_KEYCHAIN === '1') app.commandLine.appendSwitch('use-mock-keychain');
 
-const testConsentMs = Number(process.env.RA_TEST_CONSENT_MS);
+const testConsentMs = Number(env.RA_TEST_CONSENT_MS);
 const config: AppConfig = {
-  fakeScreen: process.env.RA_FAKE_SCREEN === '1',
-  forceRelay: process.env.RA_FORCE_RELAY === '1',
-  allowCodeSessions: process.env.RA_ALLOW_CODE_SESSIONS === '1',
-  skipSetup: process.env.RA_SKIP_SETUP === '1',
+  fakeScreen: env.RA_FAKE_SCREEN === '1',
+  forceRelay: env.RA_FORCE_RELAY === '1',
+  allowCodeSessions: env.RA_ALLOW_CODE_SESSIONS === '1',
+  skipSetup: env.RA_SKIP_SETUP === '1',
   ...(testConsentMs > 0 ? { consentMs: testConsentMs } : {}),
 };
-const signalingUrl = process.env.RA_SIGNALING_URL ?? 'ws://127.0.0.1:8787/ws';
+const signalingUrl = env.RA_SIGNALING_URL ?? __SIGNALING_URL__;
 /** RA_INPUT_DRY_RUN=1: log input events instead of posting them (tests; no permission needed). */
-const inputDryRun = process.env.RA_INPUT_DRY_RUN === '1';
+const inputDryRun = env.RA_INPUT_DRY_RUN === '1';
 
 // The peer is someone you paired with on purpose, so share real LAN addresses instead of mDNS
 // names. mDNS resolution needs multicast, which is less reliable and more likely to trigger
@@ -72,13 +77,16 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 /** Closing the window only hides it, unless the app is really quitting. */
 let quitting = false;
+/** Someone is helping, or the question whether they may is on screen. */
+let sessionLive = false;
+let asking = false;
 /** The display chosen for capture; remote input and the session border use the same one. */
 let capturedDisplayId: string | null = null;
 const handle = trustedHandler(() => mainWindow);
 const listen = trustedListener(() => mainWindow);
 
 function loadPage(win: BrowserWindow, page: 'index' | 'bar' | 'border'): void {
-  const devServer = process.env.ELECTRON_RENDERER_URL;
+  const devServer = env.ELECTRON_RENDERER_URL;
   if (devServer) void win.loadURL(`${devServer}/${page}.html`);
   else void win.loadFile(join(__dirname, `../renderer/${page}.html`));
 }
@@ -86,7 +94,10 @@ function loadPage(win: BrowserWindow, page: 'index' | 'bar' | 'border'): void {
 const chrome = new SessionChrome({
   barPreload: join(__dirname, '../preload/bar.js'),
   load: loadPage,
-  onChange: (state) => updateTray(state),
+  onChange: (state) => {
+    sessionLive = state !== null;
+    updateTray(state);
+  },
 });
 
 const agent = new InputAgent(
@@ -206,7 +217,7 @@ function startServerBridge(): ServerBridge {
     }),
     trust: new TrustStore(join(data, 'trusted-helpers.json')),
     settings: new Settings(join(data, 'settings.json')),
-    defaultName: process.env.RA_DEVICE_NAME ?? defaultName(),
+    defaultName: env.RA_DEVICE_NAME ?? defaultName(),
     handle,
     toWindow: (channel, payload) => mainWindow?.webContents.send(channel, payload),
     allowCodeSessions: config.allowCodeSessions,
@@ -321,10 +332,11 @@ function registerIpc(): void {
   });
 
   // A question is waiting: bring the window to the front and keep it there until answered.
-  handle(Channels.attention, (asking) => {
+  handle(Channels.attention, (question) => {
+    asking = question === true;
     const win = mainWindow;
     if (!win) return;
-    if (asking !== true) {
+    if (!asking) {
       win.setAlwaysOnTop(false);
       return;
     }
@@ -391,6 +403,43 @@ function registerIpc(): void {
 }
 
 const setup = new SetupStore(join(app.getPath('userData'), 'setup.json'));
+/** Written just before restarting to install an update, so the app comes back without its window. */
+const quietRestartFile = join(app.getPath('userData'), 'restarted-for-update');
+
+/** True once, right after a restart for an update. An old marker (a failed install) is ignored. */
+function restartedForUpdate(): boolean {
+  if (!existsSync(quietRestartFile)) return false;
+  const recent = Date.now() - statSync(quietRestartFile).mtimeMs < 10 * 60_000;
+  rmSync(quietRestartFile, { force: true });
+  return recent;
+}
+
+/**
+ * A downloaded update installs when the app quits, which may be rare here: it runs from login
+ * in the menu bar. So it also restarts by itself when nobody would notice: nobody helping or
+ * asking, the window closed, and nobody at the computer for a while.
+ */
+function startUpdates(): void {
+  let downloaded = false;
+  const updates = startAutoUpdates({
+    onDownloaded: () => {
+      downloaded = true;
+    },
+  });
+  if (!updates) return;
+  setInterval(() => {
+    const quiet = isQuietMoment({
+      busy: sessionLive || asking,
+      windowVisible: mainWindow?.isVisible() ?? false,
+      idleSeconds: powerMonitor.getSystemIdleTime(),
+    });
+    if (!downloaded || !quiet) return;
+    writeFileSync(quietRestartFile, '');
+    // Otherwise the hidden window would refuse to close (see its 'close' handler).
+    quitting = true;
+    updates.installNow();
+  }, 10 * 60_000);
+}
 
 let bridge: ServerBridge | null = null;
 
@@ -398,13 +447,12 @@ void app.whenReady().then(() => {
   configureSession();
   registerIpc();
   bridge = startServerBridge();
-  // Started with the computer, once set up: wait quietly in the menu bar.
-  const atLogin =
-    process.platform === 'darwin' &&
-    app.getLoginItemSettings().wasOpenedAtLogin &&
-    setup.get().completed;
-  mainWindow = createWindow(!atLogin);
+  // Started with the computer, or restarted for an update, once set up: wait in the menu bar.
+  const afterUpdate = restartedForUpdate();
+  const atLogin = process.platform === 'darwin' && app.getLoginItemSettings().wasOpenedAtLogin;
+  mainWindow = createWindow(!((atLogin || afterUpdate) && setup.get().completed));
   createTray();
+  startUpdates();
   // Whatever happens to the window, the helper loses the mouse and keyboard.
   mainWindow.webContents.on('render-process-gone', () => {
     input.setEnabled(false);

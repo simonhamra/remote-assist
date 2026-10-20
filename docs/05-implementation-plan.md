@@ -136,12 +136,15 @@ Separately, unit and integration tests cover:
 
 ## Phase 7: Packaging, signing and updates
 
-- [ ] electron-builder targets: macOS (DMG + ZIP for updates, hardened runtime, notarized) and Windows (NSIS)
-- [ ] Code signing in CI (Developer ID / Authenticode). Secrets go in CI vaults, never in the repo.
-- [ ] electron-updater: background download, install on next quit/restart, staged rollout to your own machine first
-- [ ] Windows: firewall rule at per-machine install (if testing showed the dialog)
+- [x] electron-builder for macOS: universal DMG + ZIP, hardened runtime, notarization, fuses, app icons, the input agent as a universal binary. See [Releases and updates](06-releases.md).
+- [x] Release workflow: a `v*` tag checks the settings, builds, signs and notarizes with secrets from GitHub's store, and drafts a GitHub release. A manual run makes a test build.
+- [x] electron-updater from the server's own `/updates/` folder (the repository stays private, and no token ships in the app). It checks a minute after launch and every 6 hours, downloads in the background, and installs on quit. The host also installs at a quiet moment: nobody helping, window closed, 15 minutes idle. It then comes back in the menu bar. Staged rollout: the release is a draft until you've installed it yourself, then `infra/publish-update.sh` publishes it.
+- [x] The installed app ignores every development and test switch (`RA_…`, the dev page server), and the signaling address is fixed at build time
+- Not done: Windows (NSIS, Authenticode, firewall rule): Grandma uses a Mac and the input agent is macOS-only.
 
 **Exit:** a fresh install on a clean Mac/PC passes Gatekeeper/SmartScreen, and an auto-update keeps every permission grant (no re-prompts).
+
+**Results so far:** a local universal build packages, launches and runs its update check (against a test address, failing cleanly), with the fuses set and an ad hoc signature that verifies. The exit test itself needs the Developer ID certificate and secrets (see [Releases](06-releases.md#once-what-you-need)): a signed, notarized build installed on a clean Mac, then updated to a newer version.
 
 ## Phase 8: Hardening and field trial
 

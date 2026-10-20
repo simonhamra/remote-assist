@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
 import {
+  app,
   ipcMain,
   type BrowserWindow,
   type IpcMainEvent,
@@ -11,8 +12,18 @@ import type { Handle } from './bridge';
 
 export { ServerBridge, type Handle, type ServerBridgeOptions } from './bridge';
 export { Settings, TrustStore, loadIdentity, type SecretBox } from './stores';
+export { isQuietMoment, startAutoUpdates, type Updates } from './updates';
 
 export type Listen = (channel: string, listener: (...args: unknown[]) => void) => void;
+
+/**
+ * The environment for development and test switches (RA_…, the dev server URL). The installed
+ * app ignores them all, so no one can talk Grandma into starting it with a test setting such as
+ * one-time code sessions, or a different server or page.
+ */
+export function devEnv(): NodeJS.ProcessEnv {
+  return app.isPackaged ? {} : process.env;
+}
 
 /** Identifies this computer without revealing its name: the first 16 hex digits of a hash. */
 export function machineId(): string {

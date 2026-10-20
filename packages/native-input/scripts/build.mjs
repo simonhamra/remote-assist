@@ -1,6 +1,8 @@
-// Builds the macOS input agent with swiftc, which comes with Xcode's Command Line Tools.
+// Builds the macOS input agent with swiftc, which comes with Xcode's Command Line Tools. The
+// result is universal (Apple silicon and Intel), like the packaged apps.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,18 +13,32 @@ if (process.platform !== 'darwin') {
   process.exit(0);
 }
 
-const arch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
-mkdirSync(join(root, 'bin'), { recursive: true });
-execFileSync(
-  'swiftc',
-  [
-    '-O',
-    '-target',
-    `${arch}-apple-macos13`,
-    '-o',
-    join(root, 'bin', 'input-agent'),
-    join(root, 'macos', 'InputAgent.swift'),
-  ],
-  { stdio: 'inherit' },
-);
-console.log('input agent: built bin/input-agent');
+const source = join(root, 'macos', 'InputAgent.swift');
+const binary = join(root, 'bin', 'input-agent');
+// `npm run dev:host` builds it every time; skip when nothing changed (--force builds anyway).
+if (
+  !process.argv.includes('--force') &&
+  existsSync(binary) &&
+  statSync(binary).mtimeMs > statSync(source).mtimeMs
+) {
+  console.log('input agent: up to date');
+  process.exit(0);
+}
+
+const work = mkdtempSync(join(tmpdir(), 'input-agent-'));
+try {
+  const slices = ['arm64', 'x86_64'].map((arch) => {
+    const output = join(work, arch);
+    execFileSync('swiftc', ['-O', '-target', `${arch}-apple-macos13`, '-o', output, source], {
+      stdio: 'inherit',
+    });
+    return output;
+  });
+  mkdirSync(join(root, 'bin'), { recursive: true });
+  execFileSync('lipo', ['-create', '-output', binary, ...slices], {
+    stdio: 'inherit',
+  });
+} finally {
+  rmSync(work, { recursive: true, force: true });
+}
+console.log('input agent: built bin/input-agent (arm64 + x86_64)');

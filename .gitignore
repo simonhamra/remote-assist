@@ -11,3 +11,7 @@ infra/.env
 
 # Built native helpers
 packages/native-input/bin/
+
+# Published app updates (copied by infra/publish-update.sh on the server)
+infra/updates/*
+!infra/updates/.gitkeep

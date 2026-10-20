@@ -4,7 +4,7 @@ One small VPS runs everything the apps need from the internet:
 
 | Service | Role | Ports |
 |---|---|---|
-| **Caddy** | HTTPS certificate and TLS for the signaling WebSocket | TCP 80, 443 |
+| **Caddy** | HTTPS certificate, TLS for the signaling WebSocket, and app updates under `/updates/` | TCP 80, 443 |
 | **signaling** | Session codes, relaying WebRTC negotiation, minting TURN credentials | internal only (8787) |
 | **coturn** | TURN relay for networks where a direct connection fails | TCP+UDP 3478, UDP 49160–49260 |
 
@@ -66,6 +66,10 @@ RA_SIGNALING_URL=wss://assist.example.com/ws npm run dev:helper
 ```
 
 To check that the relay works, add `RA_FORCE_RELAY=1` to **both** commands. The helper's stats overlay should then show **Path: relay**.
+
+## App updates
+
+Caddy serves `infra/updates/host` and `infra/updates/helper` at `https://<domain>/updates/host/` and `…/helper/`, where the installed apps look for new versions. `infra/publish-update.sh` fills them from a drafted GitHub release; see [Releases and updates](../docs/06-releases.md). Nothing else is served, and folders aren't listed.
 
 ## Backups
 

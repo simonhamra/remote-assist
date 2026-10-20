@@ -13,6 +13,7 @@ services:
       DOMAIN: ${DOMAIN:?Set DOMAIN in infra/.env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./updates:/srv/updates:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
