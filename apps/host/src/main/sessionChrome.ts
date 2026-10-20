@@ -7,6 +7,8 @@ const BAR_SIZE = { width: 620, height: 72 };
 export interface SessionChromeOptions {
   barPreload: string;
   load(win: BrowserWindow, page: 'bar' | 'border'): void;
+  /** The session started, paused, resumed or ended (`null`). */
+  onChange?(state: ChromeState | null): void;
 }
 
 const sandboxed = {
@@ -43,12 +45,14 @@ export class SessionChrome {
     this.bar ??= this.createBar(display);
     this.border ??= this.createBorder(display);
     this.sendState();
+    this.options.onChange?.(state);
     // Nothing is shared while paused, so the border goes away too.
     if (state.paused) this.border.hide();
     else if (this.border.webContents.getURL()) this.border.showInactive();
   }
 
   hide(): void {
+    if (this.state) this.options.onChange?.(null);
     this.bar?.destroy();
     this.border?.destroy();
     this.bar = null;

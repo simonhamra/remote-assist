@@ -45,8 +45,8 @@ remote-assist/
 | **Capture** | `getDisplayMedia` through Electron's `setDisplayMediaRequestHandler`, so no Chromium picker appears. One display at a time, capped at 30 fps with resolution limited to ~1080p. |
 | **Input gate** | Checks every incoming event: is the session active and not paused, is the event well-formed, is the target outside the host app's own windows? Only then does it call the injector. On pause or disconnect it releases all held keys and buttons. |
 | **Injector** | A small Swift agent, run as a child process, that posts Quartz events. The gate first maps normalized coordinates onto the shared display and physical key codes onto macOS key codes. The agent turns moves into drags while a button is held, counts double-clicks, keeps modifier flags, finds shortcut characters on the host's keyboard layout, and lets go of everything when its input closes. |
-| **Setup assistant** | First-run flow: pairing, then the OS permissions walkthrough, then launch-at-login. |
-| **Tray / menu-bar icon** | Shows status at a glance and opens a simple window: "Ask Alex for help", "People who can help me", "Session history". |
+| **Setup assistant** | First-run flow, one question per screen: welcome, pairing, Screen Recording, Accessibility, start at login, and a practice run of the consent question and session bar. Every step can be skipped; progress is saved, so the restart macOS needs after Screen Recording lands back on the same step. |
+| **Menu-bar icon** | Closing the window only hides it, so helpers can still ask. The icon (a ring, with a dot while someone helps) says who is helping, and its menu has Pause/Continue, Stop, Open and Quit. Quit really quits. |
 
 ### Helper app (you)
 

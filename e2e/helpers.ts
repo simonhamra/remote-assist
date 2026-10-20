@@ -85,7 +85,8 @@ export interface LaunchedApp {
 /**
  * Launches a built app with the synthetic test screen (no Screen Recording permission needed),
  * its own fresh data folder, a mock keychain and no Touch ID prompt. One-time code sessions are
- * on, as most tests use them; pairing tests use the paired flow.
+ * on, as most tests use them; pairing tests use the paired flow. The host skips its first-run
+ * setup, except in the setup test.
  */
 export async function launch(
   app: 'host' | 'helper',
@@ -101,6 +102,7 @@ export async function launch(
       RA_TEST_MOCK_KEYCHAIN: '1',
       RA_TEST_NO_TOUCH_ID: '1',
       RA_ALLOW_CODE_SESSIONS: '1',
+      RA_SKIP_SETUP: '1',
       ...env,
     },
   });

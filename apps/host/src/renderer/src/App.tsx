@@ -1,13 +1,16 @@
 import type { PeopleState } from '@remote-assist/desktop/channels';
 import { formatSessionCode } from '@remote-assist/protocol';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { AppConfig, ControlStatus, ScreenPermission } from '../../shared/api';
+import type { AppConfig, ControlStatus, ScreenPermission, SetupState } from '../../shared/api';
+import { playChime } from './chime';
 import { Home, PairingView } from './Home';
 import { HostSession, type HostState } from './hostSession';
 import { HostStats } from './HostStats';
+import { Setup } from './Setup';
 
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [setup, setSetup] = useState<SetupState | null>(null);
   const [permission, setPermission] = useState<ScreenPermission>('unknown');
   const [session, setSession] = useState<HostSession | null>(null);
   const people = usePeople();
@@ -15,6 +18,7 @@ export function App() {
 
   useEffect(() => {
     void window.hostApi.getConfig().then(setConfig);
+    void window.hostApi.setupState().then(setSetup);
   }, []);
 
   useEffect(() => {
@@ -50,21 +54,31 @@ export function App() {
   };
 
   const pairing = people && people.pairing.step !== 'idle';
+  const settingUp = !!config && !!setup && !setup.completed && !config.skipSetup;
 
   return (
     <main className="app">
       <header>
         <h1>Remote Assist</h1>
-        <p className="lead">
-          The people you pair with can ask to help you. Nothing is shared until you say yes.
-        </p>
+        {!settingUp && (
+          <p className="lead">
+            The people you pair with can ask to help you. Nothing is shared until you say yes.
+          </p>
+        )}
         {config?.fakeScreen && <p className="badge">Test mode: a fake screen is shared</p>}
       </header>
 
-      {config && !config.fakeScreen && <PermissionNotice permission={permission} />}
+      {config && !config.fakeScreen && !settingUp && <PermissionNotice permission={permission} />}
 
       {session ? (
         <SessionView session={session} onDone={done} />
+      ) : settingUp && config && setup && people ? (
+        <Setup
+          config={config}
+          people={people}
+          initialStep={setup.step}
+          onDone={() => setSetup({ step: 'done', completed: true })}
+        />
       ) : pairing && people ? (
         <PairingView people={people} />
       ) : config && people ? (
@@ -93,8 +107,22 @@ function usePeople(): PeopleState | null {
   return people;
 }
 
+/** A sound when someone asks, when help starts, and when it ends. */
+function useChimes(state: HostState): void {
+  const previous = useRef<HostState['name'] | null>(null);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = state.name;
+    if (before === state.name) return;
+    if (state.name === 'asking') playChime('ask');
+    else if (state.name === 'live') playChime('start');
+    else if (state.name === 'ended' && before === 'live') playChime('end');
+  }, [state.name]);
+}
+
 function SessionView({ session, onDone }: { session: HostSession; onDone(): void }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
+  useChimes(state);
   const cancel = () => {
     session.stop();
     onDone();

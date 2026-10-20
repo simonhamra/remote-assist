@@ -21,7 +21,38 @@ export const Channels = {
   barCommand: 'bar:command',
   /** Main → session bar: a `ChromeState`. */
   barState: 'bar:state',
+  setupState: 'setup:get',
+  setSetupStep: 'setup:step',
+  completeSetup: 'setup:complete',
+  registerScreenRecording: 'setup:register-screen',
+  accessibilityGranted: 'setup:accessibility',
+  startAtLogin: 'setup:login-get',
+  setStartAtLogin: 'setup:login-set',
+  relaunch: 'setup:relaunch',
 } as const;
+
+/** The guided first-run setup, one screen per step. */
+export const SETUP_STEPS = [
+  'welcome',
+  'pair',
+  'screen',
+  'control',
+  'startup',
+  'practice',
+  'done',
+] as const;
+export type SetupStep = (typeof SETUP_STEPS)[number];
+
+export interface SetupState {
+  step: SetupStep;
+  completed: boolean;
+}
+
+/** Starting with the computer: only possible for the installed app, not in development. */
+export interface LoginItem {
+  enabled: boolean;
+  supported: boolean;
+}
 
 /** Whether the helper can use the mouse and keyboard right now, and if not, why. */
 export interface ControlStatus {
@@ -42,6 +73,8 @@ export interface AppConfig {
   allowCodeSessions: boolean;
   /** RA_TEST_CONSENT_MS: a shorter consent timeout, for tests only. */
   consentMs?: number;
+  /** RA_SKIP_SETUP=1: start on the home screen (tests that aren't about setup). */
+  skipSetup: boolean;
 }
 
 /** macOS Screen Recording status (always `granted` on other platforms). */
@@ -109,6 +142,17 @@ export interface HostApi extends PeopleApi {
   recordSession(record: SessionRecord): Promise<void>;
   /** Most recent first. */
   sessionHistory(): Promise<SessionRecord[]>;
+  setupState(): Promise<SetupState>;
+  setSetupStep(step: SetupStep): Promise<void>;
+  completeSetup(): Promise<void>;
+  /** Asks macOS once, so this app appears in the Screen Recording list. Shares nothing. */
+  registerScreenRecording(): Promise<void>;
+  /** True when the helper could use the mouse and keyboard, or when there is nothing to allow. */
+  accessibilityGranted(): Promise<boolean>;
+  startAtLogin(): Promise<LoginItem>;
+  setStartAtLogin(enabled: boolean): Promise<LoginItem>;
+  /** Restarts the app: a new Screen Recording permission only takes effect then. */
+  relaunch(): Promise<void>;
 }
 
 /** Exposed to the session bar as `window.barApi`. */

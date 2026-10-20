@@ -122,14 +122,17 @@ Separately, unit and integration tests cover:
 
 ## Phase 6: Grandma-proof setup and UX
 
-- [ ] Setup assistant (see the [permissions doc](04-os-permissions.md#setup-assistant-host-first-run-target-10-minutes-on-the-phone)): pre-permission screens, deep links, grant detection, auto-relaunch
-- [ ] Launch at login, plus a tray/menu-bar icon with three items at most
-- [ ] Permission health check at launch, reported to the helper
-- [ ] UI pass: ≥ 22 px type, WCAG AAA contrast, ≥ 64 px buttons, one question per screen, the same wording every time, VoiceOver/Narrator labels
-- [ ] Optional soft chime at session start and end
-- [ ] Copy review: no jargon ("host", "session", "connection" become "Alex is helping you")
+- [x] Setup assistant (see the [permissions doc](04-os-permissions.md#setup-assistant-host-first-run-target-10-minutes-on-the-phone)): pre-permission screens, deep links, grant detection by polling, progress saved across the macOS "Quit & Reopen", and a **Restart** button in the installed app
+- [x] Practice run inside setup: a pretend consent question, then a pretend session bar with Pause, Continue and Stop. Nothing is captured or sent.
+- [x] Launch at login (installed app only: in development it would register Electron itself), plus a menu-bar icon: status, Pause/Continue, Stop, Open, Quit. Closing the window hides it; a request brings it back.
+- [x] UI pass: 20 px body text with larger headings and main buttons (72 px tall; others 56 px), WCAG AAA contrast for text (≥ 7:1 body, ≥ 4.5:1 large bold button text), one question per screen, numbered instructions, a progress bar
+- [x] Soft chimes (Web Audio, no files): rising when someone asks, higher when help starts, falling when it ends
+- [x] Copy review: "session" is gone from the host's messages ("Your screen locked, so sharing stopped."). When capture fails after a yes, the helper is told why ("their Mac didn't allow screen sharing") instead of "they cancelled".
+- Not done: a permission health check reported to the helper, screenshots of the exact switch on the permission screens, a Local Network step (only if real testing shows the prompt), and a VoiceOver walkthrough.
 
 **Exit:** a non-technical tester (ideally someone Grandma's age) completes setup with phone guidance in **< 10 min**, and a normal session needs **one click** from them.
+
+**Results so far:** an end-to-end test walks the whole setup (pairing inside it, a restart in the middle, the practice run) and checks that it doesn't come back once finished. Another closes the window, has the helper ask, and checks that the window returns with the question. The exit test itself needs a real person and a real Mac: the Screen Recording and Accessibility steps, the menu-bar icon and launch at login can only be checked with the installed, signed app (Phase 7).
 
 ## Phase 7: Packaging, signing and updates
 

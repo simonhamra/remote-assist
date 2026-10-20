@@ -44,6 +44,13 @@ export interface HelperSessionOptions {
 /** How long a dropped connection may take to come back (the host restarts ICE) before ending. */
 const RECONNECT_GRACE_MS = 15_000;
 
+const DECLINED: Record<Extract<SignalData, { kind: 'declined' }>['reason'], string> = {
+  no: 'They said no, so nothing was shared.',
+  timeout: "They didn't answer in time, so nothing was shared.",
+  unavailable:
+    "They said yes, but their Mac didn't allow screen sharing. Talk them through Privacy & Security, then Screen Recording, in System Settings.",
+};
+
 /** The helper's side of one session: joins with the host's code and receives the screen. */
 export class HelperSession {
   private readonly options: HelperSessionOptions;
@@ -160,11 +167,7 @@ export class HelperSession {
         break;
       case 'signal':
         if (event.data.kind === 'declined') {
-          this.end(
-            event.data.reason === 'no'
-              ? 'They said no, so nothing was shared.'
-              : "They didn't answer in time, so nothing was shared.",
-          );
+          this.end(DECLINED[event.data.reason]);
         } else {
           void this.onSignal(event.data);
         }
